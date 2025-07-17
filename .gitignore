@@ -1,3 +1,182 @@
-# 忽略 data 文件夹下所有内容
-readme.md
-version_control.md
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# celery beat schedule file
+celerybeat-schedule
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# Machine Learning & AI
+# Models (keep structure but ignore large files)
+models/**/*.bin
+models/**/*.safetensors
+models/**/*.bin
+models/**/*.safetensors
+models/**/*.pt
+models/**/*.pth
+models/**/*.ckpt
+models/**/*.h5
+models/**/*.hdf5
+models/**/*.pb
+models/**/*.onnx
+datasets/
+data/
+
+# Training artifacts
+checkpoints/**/*
+logs/**/*
+tensorboard_logs/**/*
+wandb/
+mlruns/
+outputs/**/*
+results/
+
+# Hugging Face cache
+.cache/
+transformers_cache/
+huggingface_hub/
+
+# CUDA
+*.cu
+*.cuh
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+*.orig
+
+# Archives
+*.tar.gz
+*.zip
+*.rar
+*.7z
+
+# Configuration files with secrets
+config.local.yaml
+.env.local
+secrets.yaml
+
+# Experiment tracking
+## 实验追踪相关已由 checkpoints/**/*、logs/**/*、results/* 等覆盖，无需重复
+
+# Project specific
+## 项目文档命名统一，已删除大小写不符的冗余项

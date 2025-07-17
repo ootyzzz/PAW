@@ -1,0 +1,36 @@
+# H800环境LoRA训练依赖
+# 基于现有环境的增量安装
+
+# 核心LoRA训练库
+peft>=0.7.0
+accelerate>=0.24.0
+
+# 实验追踪（可选，根据网络情况）
+# wandb>=0.16.0  # 如果内网无法连接，可以注释掉
+
+# 配置管理增强
+omegaconf>=2.3.0
+
+# 训练优化
+bitsandbytes>=0.41.0  # 量化支持
+flash-attn>=2.3.0     # Flash Attention优化
+
+# 数据处理增强
+datasets>=2.14.0      # 如果现有版本不兼容
+tokenizers>=0.15.0
+
+# 可视化增强
+seaborn>=0.13.0       # 基于现有matplotlib
+plotly>=5.17.0        # 交互式图表
+
+# 开发工具
+rich>=13.7.0          # 美化终端输出
+typer>=0.9.0          # CLI增强
+
+# 分布式训练（可选）
+# deepspeed>=0.12.0   # 如果需要更高级的并行
+# fairscale>=0.4.13   # Facebook的分布式训练库
+
+# 量化训练（可选）
+# auto-gptq>=0.4.0    # GPTQ量化
+# optimum>=1.14.0     # Hugging Face优化库
