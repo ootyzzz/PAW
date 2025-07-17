@@ -13,7 +13,7 @@ omegaconf>=2.3.0
 
 # 训练优化
 bitsandbytes>=0.41.0  # 量化支持
-flash-attn>=2.3.0     # Flash Attention优化
+# flash-attn>=2.3.0     # Flash Attention优化
 
 # 数据处理增强
 datasets>=2.14.0      # 如果现有版本不兼容
