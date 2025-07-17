@@ -1,2 +1,3 @@
 # 忽略 data 文件夹下所有内容
-/data/
+readme.md
+version_control.md

@@ -1,3 +1,4 @@
+# File: adapters/arc_adapter.py (relative to workspace root)
 """
 ARC-e/ARC-c 数据集专用 prompt 构建函数
 输入: sample 字典，包含 'question' 和 'choices'
