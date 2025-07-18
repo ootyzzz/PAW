@@ -1,49 +1,107 @@
-# 现代化LoRA训练配置
+# 现代化LoRA训练配置 - Commonsense数据集专用
 model:
   name: "Qwen/Qwen2.5-0.5B"
+  local_path: "C:/Users/feifa/GitHub/P2W/models/Qwen-Qwen2.5-0.5B"
   cache_dir: "./models"
   torch_dtype: "auto"
   device_map: "auto"
   trust_remote_code: true
 
+# 数据配置
+data:
+  train_file: "C:/Users/feifa/GitHub/P2W/raw_datasets/commonsense/cs_all_unbalanced.jsonl"
+  validation_split: 0.1
+  max_length: 512
+  padding: "max_length"
+  truncation: true
+
+# LoRA配置 - 针对Qwen2.5优化
 lora:
-  r: 8
-  alpha: 16
-  dropout: 0.05
-  target_modules: ["q_proj", "v_proj", "k_proj", "o_proj"]
+  r: 16
+  lora_alpha: 32
+  lora_dropout: 0.1
+  target_modules: ["q_proj", "v_proj", "k_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
   bias: "none"
   task_type: "CAUSAL_LM"
 
+# 两阶段训练配置
 training:
-  output_dir: "./checkpoints/qwen2.5_lora"
-  num_train_epochs: 3
+  experiment_type: "commonsense_lora"
+  output_dir: "./experiments/commonsense_lora_qwen25/models"
+  
+  # 两阶段学习率策略
+  stage1:
+    steps: 75
+    learning_rate: 1.0e-4
+    save_checkpoints: false
+    description: "High learning rate stage"
+  
+  stage2:
+    steps: 50
+    learning_rate: 1.0e-5
+    save_checkpoints: true
+    save_every_step: true
+    description: "Low learning rate stage with checkpointing"
+  
+  # 基础训练参数
   per_device_train_batch_size: 4
   per_device_eval_batch_size: 4
   gradient_accumulation_steps: 1
-  learning_rate: 2.0e-4
   weight_decay: 0.01
-  warmup_steps: 100
-  logging_steps: 10
-  eval_steps: 500
-  save_steps: 1000
-  save_total_limit: 2
-  evaluation_strategy: "steps"
-  load_best_model_at_end: true
-  metric_for_best_model: "eval_loss"
-  greater_is_better: false
-  dataloader_num_workers: 4
+  warmup_steps: 0
+  logging_steps: 1
+  save_total_limit: 50
   remove_unused_columns: false
-  report_to: "wandb"
-  run_name: "qwen2.5_lora_training"
   fp16: true
   gradient_checkpointing: true
+  dataloader_num_workers: 0  # Windows建议设为0
   
-wandb:
-  project: "qwen2.5-lora-training"
-  entity: "your-wandb-entity"
-  tags: ["lora", "qwen2.5", "fine-tuning"]
+  # 优化器配置
+  optimizer: "adamw"
+  adam_beta1: 0.9
+  adam_beta2: 0.999
+  adam_epsilon: 1.0e-8
+  max_grad_norm: 1.0
+
+# Checkpoint配置
+checkpoint:
+  dir: "./experiments/commonsense_lora_qwen25/checkpoints"
+  max_checkpoints: 50
+  save_optimizer_state: true
+  save_scheduler_state: true
   
+# 硬件配置
+hardware:
+  use_cuda: true
+  mixed_precision: true
+  compile_model: false  # PyTorch 2.0 编译优化
+
+# 日志配置
 logging:
   level: "INFO"
-  log_dir: "./logs"
-  tensorboard_dir: "./tensorboard_logs"
+  log_dir: "./experiments/commonsense_lora_qwen25/logs"
+  log_file: "training.log"
+  console_output: true
+  
+  # 监控配置
+  track_metrics: true
+  metrics_file: "metrics.json"
+  
+# 评估配置
+evaluation:
+  enabled: false  # 专注于训练
+  eval_steps: 500
+  metric_for_best_model: "eval_loss"
+  greater_is_better: false
+
+# 实验标签和描述
+experiment:
+  name: "commonsense_lora_qwen25"
+  description: "Two-stage LoRA training on Qwen2.5-0.5B with commonsense dataset"
+  tags: ["lora", "qwen2.5", "commonsense", "two-stage"]
+  author: "P2W Project"
+  notes: |
+    两阶段训练策略:
+    - 阶段1: 75步, lr=1e-4, 不保存checkpoint
+    - 阶段2: 50步, lr=1e-5, 每步保存checkpoint
+    目标是在commonsense推理任务上微调Qwen2.5-0.5B模型
