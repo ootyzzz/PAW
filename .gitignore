@@ -178,6 +178,7 @@ secrets.yaml
 
 # Experiment tracking
 ## 实验追踪相关已由 checkpoints/**/*、logs/**/*、results/* 等覆盖，无需重复
+experiments/**
 
 # Project specific
 ## 项目文档命名统一，已删除大小写不符的冗余项
