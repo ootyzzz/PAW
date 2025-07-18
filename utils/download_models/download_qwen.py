@@ -2,11 +2,13 @@ import os
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-def download_qwen(save_path="../../models"):
+def download_qwen(base_path="./models"):
     # 设置模型名称
     model_name = "Qwen/Qwen2.5-0.5B"
+    model_version = model_name.replace('/', '-')
     
-    # 创建保存目录
+    # 创建具体版本的保存目录
+    save_path = os.path.join(base_path, model_version)
     os.makedirs(save_path, exist_ok=True)
     
     # 下载tokenizer
