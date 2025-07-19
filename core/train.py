@@ -19,7 +19,7 @@ from utils.scheduler import get_scheduler, TwoStageScheduler
 from utils.data_processor import DataProcessor
 from lora.flatten import flatten_lora_weights
 from lora.checkpoint_utils import load_checkpoint, CheckpointManager
-from core.hyperconv_decoder import HyperConvDecoder
+from Lora_Adaper.hyperconv_decoder import HyperConvDecoder
 import random
 
 logger = logging.getLogger(__name__)
@@ -312,7 +312,7 @@ def train_loop(prompt_batches, lora_checkpoints, epochs=100, batch_size=32):
             loss = mse_loss(pred, target)
             loss.backward()
             optimizer.step()
-            optimizer.zero_grad()
+            optimizer.zero_grad() 
         scheduler.step()
         # 保存最佳模型
         if loss.item() < best_loss:

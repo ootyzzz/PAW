@@ -151,9 +151,9 @@ def main():
     """
     try:
         # 文件路径
-        input_file = Path("raw_datasets/commonsense/cs_mixed.jsonl")
-        output_file = Path("raw_datasets/commonsense/cs_mixed_formatted.jsonl")
-        
+        input_file = Path("data_to_lora/commonsense/cs_mixed.jsonl")
+        output_file = Path("data_to_lora/commonsense/cs_mixed_formatted.jsonl")
+
         # 确保目录存在
         output_file.parent.mkdir(parents=True, exist_ok=True)
         

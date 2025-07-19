@@ -123,6 +123,7 @@ models/**/*.pb
 models/**/*.onnx
 datasets/
 data/
+data_to_lora/
 
 # Raw datasets (keep structure but ignore large data files)
 raw_datasets/**/*.jsonl

@@ -31,7 +31,7 @@ def main():
     parser = argparse.ArgumentParser(description="数据集完整处理流程")
     parser.add_argument("--datasets_dir", type=str, default="raw_datasets",
                        help="数据集根目录")
-    parser.add_argument("--output_dir", type=str, default="raw_datasets/commonsense",
+    parser.add_argument("--output_dir", type=str, default="data_to_lora/commonsense",
                        help="输出目录")
     parser.add_argument("--seed", type=int, default=42,
                        help="随机种子")
