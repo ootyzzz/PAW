@@ -52,12 +52,27 @@ class ExperimentManager:
                          name: str, 
                          config: Dict,
                          description: str = "",
-                         tags: List[str] = None) -> str:
-        """创建新实验"""
+                         tags: List[str] = None,
+                         dataset_name: str = None) -> str:
+        """创建新实验
         
-        # 创建实验目录
-        exp_dir = self.experiments_dir / name
-        exp_dir.mkdir(exist_ok=True)
+        Args:
+            name: 实验名称
+            config: 配置字典
+            description: 实验描述
+            tags: 标签列表
+            dataset_name: 数据集名称，用于组织文件结构
+        """
+        
+        # 如果提供了dataset_name，使用数据集优先的文件结构
+        if dataset_name:
+            # 结构: experiments/cs/{dataset_name}/{timestamp_experiment_name}/
+            exp_dir = self.experiments_dir / "cs" / dataset_name / name
+        else:
+            # 默认结构: experiments/{experiment_name}/
+            exp_dir = self.experiments_dir / name
+            
+        exp_dir.mkdir(parents=True, exist_ok=True)
         
         # 创建子目录
         (exp_dir / "checkpoints").mkdir(exist_ok=True)
@@ -77,7 +92,8 @@ class ExperimentManager:
             "created_at": datetime.now().isoformat(),
             "status": "created",
             "config": config,
-            "type": config.get("experiment_type", "general")
+            "type": config.get("experiment_type", "general"),
+            "dataset_name": dataset_name
         }
         
         with open(exp_dir / "metadata.json", "w") as f:
@@ -164,7 +180,7 @@ class ExperimentManager:
         if LoRATrainer is None:
             raise ImportError("LoRATrainer not available. Please check imports.")
         
-        # 获取实验配置
+        # 获取实验配置 - 先尝试没有数据集名称的查找
         experiment = self.get_experiment(experiment_name)
         if not experiment:
             raise ValueError(f"Experiment '{experiment_name}' not found")
@@ -173,10 +189,16 @@ class ExperimentManager:
             raise ValueError(f"Experiment '{experiment_name}' is not a commonsense_lora experiment")
         
         config = experiment["config"]
-        exp_dir = self.experiments_dir / experiment_name
+        dataset_name = experiment.get("dataset_name")  # 获取数据集名称
+        
+        # 根据数据集名称确定实验目录
+        if dataset_name:
+            exp_dir = self.experiments_dir / "cs" / dataset_name / experiment_name
+        else:
+            exp_dir = self.experiments_dir / experiment_name
         
         # 更新状态
-        self.update_experiment_status(experiment_name, "running")
+        self.update_experiment_status(experiment_name, "running", dataset_name)
         
         try:
             # 创建训练器
@@ -209,14 +231,14 @@ class ExperimentManager:
                 json.dump(results, f, indent=2)
             
             # 更新状态
-            self.update_experiment_status(experiment_name, "completed")
+            self.update_experiment_status(experiment_name, "completed", dataset_name)
             
             logger.info(f"Experiment '{experiment_name}' completed successfully")
             return results
             
         except Exception as e:
             # 更新状态为失败
-            self.update_experiment_status(experiment_name, "failed")
+            self.update_experiment_status(experiment_name, "failed", dataset_name)
             logger.error(f"Experiment '{experiment_name}' failed: {e}")
             
             # 保存错误信息
@@ -291,20 +313,54 @@ class ExperimentManager:
         
         return sorted(experiments, key=lambda x: x.get("created_at", ""), reverse=True)
     
-    def get_experiment(self, name: str) -> Optional[Dict]:
-        """获取实验信息"""
-        exp_dir = self.experiments_dir / name
+    def get_experiment(self, name: str, dataset_name: str = None) -> Optional[Dict]:
+        """获取实验信息
+        
+        Args:
+            name: 实验名称
+            dataset_name: 数据集名称，用于新的文件结构查找
+        """
+        if dataset_name:
+            # 新的文件结构: experiments/cs/{dataset_name}/{experiment_name}/
+            exp_dir = self.experiments_dir / "cs" / dataset_name / name
+        else:
+            # 旧的文件结构: experiments/{experiment_name}/
+            exp_dir = self.experiments_dir / name
+            
         metadata_file = exp_dir / "metadata.json"
         
         if not metadata_file.exists():
+            # 如果没有找到，尝试在所有数据集文件夹中搜索
+            if not dataset_name:
+                cs_dir = self.experiments_dir / "cs"
+                if cs_dir.exists():
+                    for dataset_dir in cs_dir.iterdir():
+                        if dataset_dir.is_dir():
+                            candidate_dir = dataset_dir / name
+                            candidate_metadata = candidate_dir / "metadata.json"
+                            if candidate_metadata.exists():
+                                with open(candidate_metadata, "r") as f:
+                                    return json.load(f)
             return None
         
         with open(metadata_file, "r") as f:
             return json.load(f)
     
-    def update_experiment_status(self, name: str, status: str):
-        """更新实验状态"""
-        exp_dir = self.experiments_dir / name
+    def update_experiment_status(self, name: str, status: str, dataset_name: str = None):
+        """更新实验状态
+        
+        Args:
+            name: 实验名称
+            status: 新状态
+            dataset_name: 数据集名称，用于新的文件结构查找
+        """
+        if dataset_name:
+            # 新的文件结构: experiments/cs/{dataset_name}/{experiment_name}/
+            exp_dir = self.experiments_dir / "cs" / dataset_name / name
+        else:
+            # 旧的文件结构: experiments/{experiment_name}/
+            exp_dir = self.experiments_dir / name
+            
         metadata_file = exp_dir / "metadata.json"
         
         if metadata_file.exists():
@@ -316,6 +372,25 @@ class ExperimentManager:
             
             with open(metadata_file, "w") as f:
                 json.dump(metadata, f, indent=2)
+        else:
+            # 如果没有找到，尝试在所有数据集文件夹中搜索并更新
+            if not dataset_name:
+                cs_dir = self.experiments_dir / "cs"
+                if cs_dir.exists():
+                    for dataset_dir in cs_dir.iterdir():
+                        if dataset_dir.is_dir():
+                            candidate_dir = dataset_dir / name
+                            candidate_metadata = candidate_dir / "metadata.json"
+                            if candidate_metadata.exists():
+                                with open(candidate_metadata, "r") as f:
+                                    metadata = json.load(f)
+                                
+                                metadata["status"] = status
+                                metadata["updated_at"] = datetime.now().isoformat()
+                                
+                                with open(candidate_metadata, "w") as f:
+                                    json.dump(metadata, f, indent=2)
+                                return
     
     def get_experiment_results(self, name: str) -> Optional[Dict]:
         """获取实验结果"""
