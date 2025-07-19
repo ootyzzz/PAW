@@ -57,7 +57,7 @@ def main():
     
     # 步骤1: 混合数据集
     if not args.skip_mix:
-        mix_cmd = f"python utils/dataset/cs_mixer.py"
+        mix_cmd = f"python utils/dataset_prep/cs_mixer.py"
         mix_cmd += f" --datasets_dir {args.datasets_dir}"
         mix_cmd += f" --output_dir {args.output_dir}"
         mix_cmd += f" --seed {args.seed}"
@@ -74,7 +74,7 @@ def main():
     
     # 步骤2: 最终数据清理
     if not args.skip_clean:
-        clean_cmd = "python utils/dataset/cs_formatter.py"
+        clean_cmd = "python utils/dataset_prep/cs_formatter.py"
         success = run_command(clean_cmd, "步骤2: 最终数据清理和格式化")
         
         if not success:
