@@ -124,6 +124,11 @@ models/**/*.onnx
 datasets/
 data/
 
+# Raw datasets (keep structure but ignore large data files)
+raw_datasets/**/*.jsonl
+raw_datasets/**/*.json
+!raw_datasets/**/README.md
+
 # Training artifacts
 checkpoints/**/*
 logs/**/*
@@ -182,3 +187,32 @@ experiments/**
 
 # Project specific
 ## 项目文档命名统一，已删除大小写不符的冗余项
+
+# Environment validation and setup
+setup_env/validate_cuda_output.txt
+setup_env/gpu_test_results.log
+
+# Batch processing and scripts
+*.bat.log
+process_*.log
+validation_report_*.json
+
+# Jupyter notebook checkpoints and outputs
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+collecting_ckpts.ipynb
+
+# Data processing temporary files
+temp_data/
+processing_temp/
+*.jsonl.tmp
+*.jsonl.bak
+
+# Training and experiment specific
+experiment_manager.log
+cleanup_*.log
+interrupted_training_*.json
+
+# Windows specific
+*.lnk
+desktop.ini
