@@ -1,7 +1,7 @@
 # 现代化LoRA训练配置 - Commonsense数据集专用
 model:
   name: "Qwen/Qwen2.5-0.5B"
-  local_path: "C:/Users/feifa/GitHub/P2W/models/Qwen-Qwen2.5-0.5B"
+  local_path: "models/Qwen-Qwen2.5-0.5B"
   cache_dir: "./models"
   torch_dtype: "auto"
   device_map: "auto"
@@ -9,7 +9,7 @@ model:
 
 # 数据配置
 data:
-  train_file: "C:/Users/feifa/GitHub/P2W/raw_datasets/commonsense/cs_all_unbalanced.jsonl"
+  train_file: "raw_datasets/commonsense/cs_mixed_formatted.jsonl"
   validation_split: 0.1
   max_length: 512
   padding: "max_length"
