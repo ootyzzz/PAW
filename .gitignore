@@ -126,9 +126,9 @@ data/
 data_to_lora/
 
 # Raw datasets (keep structure but ignore large data files)
-raw_datasets/**/*.jsonl
-raw_datasets/**/*.json
-!raw_datasets/**/README.md
+# raw_datasets/**/*.jsonl
+# raw_datasets/**/*.json
+# !raw_datasets/**/README.md
 
 # Training artifacts
 checkpoints/**/*
