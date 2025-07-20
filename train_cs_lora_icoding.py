@@ -4,24 +4,40 @@ train_cs_lora_icoding.py
 服务器环境LoRA训练脚本 - 针对4×H800优化
 支持精确batch追踪和prompt-checkpoint配对
 
+======================================================================
+🚀 服务器运行所有数据集命令 (batch_size=32, 完整训练):
+======================================================================
+
+# 运行所有7个数据集的完整训练命令:
+python train_cs_lora_icoding.py --dataset arc-challenge --batch_size 32 --track_batches
+python train_cs_lora_icoding.py --dataset arc-easy --batch_size 32 --track_batches
+python train_cs_lora_icoding.py --dataset boolq --batch_size 32 --track_batches
+python train_cs_lora_icoding.py --dataset hellaswag --batch_size 32 --track_batches
+python train_cs_lora_icoding.py --dataset openbookqa --batch_size 32 --track_batches
+python train_cs_lora_icoding.py --dataset piqa --batch_size 32 --track_batches
+python train_cs_lora_icoding.py --dataset winogrande --batch_size 32 --track_batches
+
+# 或者可以写成一行脚本:
+for dataset in arc-challenge arc-easy boolq hellaswag openbookqa piqa winogrande; do python train_cs_lora_icoding.py --dataset $dataset --batch_size 32 --track_batches; done
+
+======================================================================
+
 配置特点:
-- Batch size: 32 (适配服务器内存)
-- Training steps: 125
+- Batch size: 32 (服务器) / 4 (本地测试)
+- Training steps: 125 (正常) / 20 (测试)
 - Checkpoint频率: 每50步保存
 - 数据加载: 严格顺序，可追踪每个batch的source行号
+- 真实训练: 本地和服务器都执行真实LoRA训练
 
 使用示例:
-# 服务器环境 - batch size 32
+# 服务器环境 - batch size 32, 完整125步训练
 python train_cs_lora_icoding.py --dataset arc-challenge
 
-# 本地测试 - batch size 4 
+# 本地测试 - batch size 4, 20步验证训练
 python train_cs_lora_icoding.py --dataset arc-challenge --test_mode
 
-# 训练单个数据集
-python train_cs_lora_icoding.py --dataset arc-challenge
-
-# 训练多个数据集
-python train_cs_lora_icoding.py --dataset arc-challenge arc-easy
+# 自定义batch size
+python train_cs_lora_icoding.py --dataset arc-challenge --batch_size 16
 
 # 启用详细的batch追踪日志
 python train_cs_lora_icoding.py --dataset arc-challenge --track_batches
@@ -30,10 +46,10 @@ python train_cs_lora_icoding.py --dataset arc-challenge --track_batches
 python train_cs_lora_icoding.py --dataset arc-challenge --dry_run
 
 关键特性:
-1. 固定batch size=32，严格顺序加载数据
-2. 每个checkpoint精确记录对应的prompt范围
-3. 自动处理epoch循环，保持数据一致性
-4. 详细的batch-checkpoint映射日志
+1. 统一的真实LoRA训练：本地测试和服务器部署使用相同的训练逻辑
+2. 可配置batch size：服务器用32，本地用4，checkpoint格式完全一致  
+3. 精确的batch追踪：每个checkpoint都能追溯到具体的prompt行号
+4. 自动处理epoch循环，保持数据一致性
 """
 
 import os
@@ -47,6 +63,7 @@ from datetime import datetime
 from typing import Dict, Any, List, Tuple, Optional
 import torch
 from torch.utils.data import DataLoader, Dataset
+from peft import TaskType
 
 
 def custom_collate_fn(batch):
@@ -321,29 +338,65 @@ def run_icoding_experiment(dataset_name: str, base_config: Dict[str, Any], track
         print(f"  - 总batch数: {len(dataloader)}")
         print(f"  - Shuffle: False (严格顺序)")
         
-        # 执行训练或模拟训练
+        # 执行真实LoRA训练
         if test_mode:
-            # 测试模式：完整的batch追踪验证，但步数较少以便观察
-            results = run_test_training_with_full_tracking(
-                dataloader=dataloader,
-                total_steps=20,  # 测试模式使用较少步数
-                checkpoint_steps=[10, 20],  # 测试checkpoint
-                tracker=tracker,
-                config=config
-            )
+            # 测试模式：本地验证，使用较少步数观察效果
+            config['training']['max_steps'] = 20  # 测试模式步数
+            checkpoint_steps = [10, 20]
+            print(f"🧪 测试模式: 训练{config['training']['max_steps']}步用于验证")
         else:
-            # 正常模式或模拟训练
-            results = simulate_training_with_tracking(
-                dataloader=dataloader,
-                total_steps=125,
-                checkpoint_steps=[50, 100, 125],
-                tracker=tracker,
-                config=config
-            )
+            # 正常模式：完整训练125步
+            checkpoint_steps = [50, 100, 125]
+            print(f"🚀 正常模式: 训练{config['training']['max_steps']}步")
+        
+        # 统一使用真实LoRA训练
+        results = run_actual_lora_training(
+            dataloader=dataloader,
+            config=config,
+            tracker=tracker,
+            checkpoint_steps=checkpoint_steps
+        )
         
         # 生成line-to-checkpoint映射文件
         if tracker:
-            generate_line_to_checkpoint_mapping(tracker, str(log_dir))
+            # 检查是否使用了TrackingLoRATrainer（有自己的映射文件）
+            tracking_mapping_file = Path(results.get("output_dir", "")) / "line_to_checkpoint_mapping.json"
+            
+            if tracking_mapping_file.exists():
+                print(f"📁 发现TrackingLoRATrainer映射文件: {tracking_mapping_file}")
+                
+                # 复制映射文件到logs目录以保持一致性
+                log_mapping_file = log_dir / f"line_checkpoint_mapping_{dataset_name}.json"
+                
+                # 读取TrackingLoRATrainer的映射数据
+                with open(tracking_mapping_file, 'r', encoding='utf-8') as f:
+                    tracking_data = json.load(f)
+                
+                # 转换为标准格式并保存到logs目录
+                standard_mapping = {
+                    "dataset": dataset_name,
+                    "generated_at": tracking_data["generation_info"]["timestamp"],
+                    "summary": {
+                        "total_checkpoints": tracking_data["generation_info"]["total_checkpoints"],
+                        "total_unique_lines": tracking_data["generation_info"]["total_tracked_lines"],
+                        "total_line_checkpoint_pairs": tracking_data["generation_info"]["total_tracked_lines"]
+                    },
+                    "line_to_checkpoint": tracking_data["line_to_checkpoint"],
+                    "checkpoint_to_lines": tracking_data["checkpoint_to_lines"]
+                }
+                
+                with open(log_mapping_file, 'w', encoding='utf-8') as f:
+                    json.dump(standard_mapping, f, indent=2, ensure_ascii=False)
+                
+                print(f"✅ 映射文件已同步到logs目录: {log_mapping_file}")
+                print(f"📊 映射统计:")
+                print(f"  - 总checkpoint数: {standard_mapping['summary']['total_checkpoints']}")
+                print(f"  - 总行数: {standard_mapping['summary']['total_unique_lines']}")
+                print(f"  - 行-checkpoint对数: {standard_mapping['summary']['total_line_checkpoint_pairs']}")
+            else:
+                # 回退到传统的映射生成方法
+                print("📋 使用传统BatchTracker生成映射文件...")
+                generate_line_to_checkpoint_mapping(tracker, str(log_dir))
         
         return results
         
@@ -352,171 +405,118 @@ def run_icoding_experiment(dataset_name: str, base_config: Dict[str, Any], track
         raise
 
 
-def simulate_training_with_tracking(
+def run_actual_lora_training(
     dataloader: DataLoader,
-    total_steps: int,
-    checkpoint_steps: List[int],
+    config: Dict[str, Any],
     tracker: Optional[BatchTracker],
-    config: Dict[str, Any]
+    checkpoint_steps: List[int]
 ) -> Dict[str, Any]:
-    """模拟训练过程，展示batch追踪逻辑"""
+    """运行实际的LoRA训练"""
     
-    print(f"\n🔄 开始训练模拟 (共{total_steps}步)...")
+    print(f"\n🚀 开始LoRA训练...")
+    print(f"📊 训练配置:")
+    print(f"  - 模型: {config.get('model', {}).get('name', 'Qwen2.5-0.5B')}")
+    print(f"  - 最大步数: {config['training']['max_steps']}")
+    print(f"  - Batch大小: {config['training']['per_device_train_batch_size']}")
+    print(f"  - 保存步骤: {checkpoint_steps}")
+    print(f"  - 输出目录: {config['training']['output_dir']}")
     
-    step = 0
-    checkpoint_saved = []
-    dataloader_iter = iter(dataloader)
-    last_checkpoint_step = 0
-    
-    while step < total_steps:
-        try:
-            # 获取下一个batch
-            batch = next(dataloader_iter)
+    try:
+        # 准备LoRA训练器参数
+        model_path = config.get('model', {}).get('path', 'models/Qwen-Qwen2.5-0.5B')
+        if not os.path.exists(model_path):
+            # 如果路径不存在，尝试使用模型名称
+            model_name = config.get('model', {}).get('name', 'Qwen/Qwen2.5-0.5B')
+            model_path = model_name
             
-            # 记录batch信息
-            if tracker:
-                tracker.log_batch(step, batch)
+        data_path = config['data']['train_file']
+        output_dir = config['training']['output_dir']
+        
+        # LoRA配置
+        lora_config = {
+            'r': config.get('lora', {}).get('r', 16),
+            'lora_alpha': config.get('lora', {}).get('alpha', 32),
+            'target_modules': config.get('lora', {}).get('target_modules', ["q_proj", "v_proj"]),
+            'lora_dropout': config.get('lora', {}).get('dropout', 0.1),
+            'bias': config.get('lora', {}).get('bias', "none"),
+            'task_type': TaskType.CAUSAL_LM
+        }
+        
+        print(f"📊 LoRA配置:")
+        print(f"  - r: {lora_config['r']}")
+        print(f"  - alpha: {lora_config['lora_alpha']}")
+        print(f"  - target_modules: {lora_config['target_modules']}")
+        
+        # 创建LoRA训练器
+        trainer = LoRATrainer(
+            model_path=model_path,
+            data_path=data_path,
+            output_dir=output_dir,
+            lora_config=lora_config
+        )
+        
+        # 使用tracking wrapper（如果需要batch追踪）
+        if tracker:
+            print("📝 启用完整的batch追踪功能")
             
-            # 显示进度
-            if step % 10 == 0 or step < 5:
-                sample_info = batch[0] if batch else {}
-                print(f"  Step {step}: batch_size={len(batch)}, "
-                      f"source_lines=[{sample_info.get('_source_line', -1)}...], "
-                      f"epoch={sample_info.get('_epoch', 0)}")
+            from lora_trainer_wrapper import TrackingLoRATrainer
             
-            # 检查是否需要保存checkpoint
-            if step + 1 in checkpoint_steps:
-                checkpoint_path = f"checkpoint-{step + 1}"
-                checkpoint_saved.append({
-                    "step": step + 1,
-                    "path": checkpoint_path,
-                    "batch_range": (last_checkpoint_step, step)
-                })
-                
-                if tracker:
-                    tracker.log_checkpoint(step + 1, checkpoint_path, (last_checkpoint_step, step))
-                
-                print(f"💾 保存checkpoint: {checkpoint_path} (覆盖steps {last_checkpoint_step}-{step})")
-                last_checkpoint_step = step + 1
+            # 创建追踪wrapper
+            tracking_trainer = TrackingLoRATrainer(trainer, output_dir)
             
-            step += 1
-            
-        except StopIteration:
-            # DataLoader耗尽，重新开始下一个epoch
-            print(f"  📚 数据集遍历完毕，开始新epoch (当前step: {step})")
-            dataloader_iter = iter(dataloader)
-    
-    results = {
-        "status": "completed",
-        "total_steps": step,
-        "checkpoints_saved": checkpoint_saved,
-        "dataset_cycles": step // len(dataloader) + (1 if step % len(dataloader) > 0 else 0)
-    }
-    
-    print(f"\n✅ 训练模拟完成:")
-    print(f"  - 总步数: {step}")
-    print(f"  - 保存checkpoint: {len(checkpoint_saved)}个")
-    print(f"  - 数据集循环: {results['dataset_cycles']}次")
-    
-    return results
-
-
-def run_test_training_with_full_tracking(
-    dataloader: DataLoader,
-    total_steps: int,
-    checkpoint_steps: List[int],
-    tracker: Optional[BatchTracker],
-    config: Dict[str, Any]
-) -> Dict[str, Any]:
-    """测试模式：运行完整的batch追踪验证"""
-    
-    print(f"\n🧪 开始测试模式训练 (共{total_steps}步，完整追踪)...")
-    
-    step = 0
-    checkpoint_saved = []
-    dataloader_iter = iter(dataloader)
-    last_checkpoint_step = 0
-    all_batches_data = []  # 保存所有batch数据用于分析
-    
-    while step < total_steps:
-        try:
-            # 获取下一个batch
-            batch = next(dataloader_iter)
-            
-            # 转换为可序列化的格式
-            batch_list = []
-            for item in batch:
-                if isinstance(item, dict):
-                    batch_list.append(item)
-                elif hasattr(item, 'item'):  # 处理tensor
-                    batch_list.append({'tensor_value': item.item()})
-                else:
-                    batch_list.append({'value': str(item)})
-            
-            all_batches_data.append({
-                'step': step,
-                'batch': batch_list
-            })
-            
-            # 记录batch信息
-            if tracker:
-                tracker.log_batch(step, batch_list)
-            
-            # 显示详细进度
-            sample_info = batch_list[0] if batch_list else {}
-            source_lines = [item.get('_source_line', -1) for item in batch_list]
-            epochs = list(set(item.get('_epoch', 0) for item in batch_list))
-            
-            print(f"  🔍 Step {step:2d}: batch_size={len(batch_list)}, "
-                  f"source_lines=[{min(source_lines):3d}-{max(source_lines):3d}], "
-                  f"epochs={epochs}")
-            
-            # 显示每个样本的详细信息（仅前3个样本以避免输出过多）
-            for i, item in enumerate(batch_list[:3]):
-                print(f"    📄 Sample {i}: line={item.get('_source_line', -1)}, "
-                      f"id={item.get('id', 'N/A')[:20]}..., "
-                      f"epoch={item.get('_epoch', 0)}")
-            
-            if len(batch_list) > 3:
-                print(f"    📄 ... 还有 {len(batch_list) - 3} 个样本")
-            
-            # 检查是否需要保存checkpoint
-            if step + 1 in checkpoint_steps:
-                checkpoint_path = f"checkpoint-{step + 1}"
-                checkpoint_saved.append({
-                    "step": step + 1,
-                    "path": checkpoint_path,
-                    "batch_range": (last_checkpoint_step, step)
-                })
-                
-                if tracker:
-                    tracker.log_checkpoint(step + 1, checkpoint_path, (last_checkpoint_step, step))
-                
-                print(f"💾 保存checkpoint: {checkpoint_path} (覆盖steps {last_checkpoint_step}-{step})")
-                last_checkpoint_step = step + 1
-            
-            step += 1
-            
-        except StopIteration:
-            # DataLoader耗尽，重新开始下一个epoch
-            print(f"  📚 数据集遍历完毕，开始新epoch (当前step: {step})")
-            dataloader_iter = iter(dataloader)
-    
-    results = {
-        "status": "test_completed",
-        "total_steps": step,
-        "checkpoints_saved": checkpoint_saved,
-        "dataset_cycles": step // len(dataloader) + (1 if step % len(dataloader) > 0 else 0),
-        "all_batches_data": all_batches_data
-    }
-    
-    print(f"\n✅ 测试模式训练完成:")
-    print(f"  - 总步数: {step}")
-    print(f"  - 保存checkpoint: {len(checkpoint_saved)}个")
-    print(f"  - 数据集循环: {results['dataset_cycles']}次")
-    print(f"  - 追踪batch: {len(all_batches_data)}个")
-    
-    return results
+            # 使用wrapper执行训练
+            return tracking_trainer.train_with_tracking(dataloader, config, checkpoint_steps)
+        
+        # 开始训练（无追踪模式）
+        print(f"🏃‍♂️ 开始执行标准LoRA训练...")
+        
+        # 调用训练，传入训练参数
+        training_result = trainer.train(
+            batch_size=config['training']['per_device_train_batch_size'],
+            max_length=config.get('data', {}).get('max_length', 512),
+            gradient_accumulation_steps=config['training']['gradient_accumulation_steps'],
+            warmup_steps=0,
+            logging_steps=config['training'].get('logging_steps', 1),
+            save_steps=config['training'].get('save_steps', 50)
+        )
+        
+        # 确保输出目录存在并保存模型
+        output_dir = Path(config['training']['output_dir'])
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 保存最终模型
+        if hasattr(trainer, 'save_model'):
+            trainer.save_model(str(output_dir))
+        
+        results = {
+            "status": "training_completed",
+            "output_dir": str(output_dir),
+            "total_steps": config['training']['max_steps'],
+            "checkpoint_steps": checkpoint_steps,
+            "model_saved": True,
+            "training_result": training_result
+        }
+        
+        print(f"\n✅ LoRA训练完成!")
+        print(f"📁 模型保存位置: {output_dir}")
+        print(f"📊 训练步数: {config['training']['max_steps']}")
+        print(f"💾 Checkpoint保存: {len(checkpoint_steps)}个")
+        
+        return results
+        
+    except Exception as e:
+        print(f"❌ LoRA训练失败: {e}")
+        print(f"💡 错误详情: {str(e)}")
+        
+        # 记录错误但不回退到模拟模式
+        results = {
+            "status": "training_failed",
+            "error": str(e),
+            "output_dir": config['training']['output_dir'],
+            "total_steps": config['training']['max_steps']
+        }
+        
+        raise Exception(f"LoRA训练失败: {e}")
 
 
 def generate_line_to_checkpoint_mapping(tracker: BatchTracker, log_dir: str):
@@ -679,9 +679,9 @@ def main():
     parser.add_argument("--dry_run", action="store_true",
                        help="干运行，分析数据分布但不实际训练")
     parser.add_argument("--test_mode", action="store_true",
-                       help="测试模式，使用本地可测试的batch size 4进行完整的追踪验证")
+                       help="测试模式，使用batch size 4进行较少步数的训练验证（20步vs125步）")
     parser.add_argument("--batch_size", type=int, default=32,
-                       help="批处理大小 (默认32，测试模式下自动设为4)")
+                       help="批处理大小 (默认32适合服务器，本地测试建议4)")
     
     args = parser.parse_args()
     
@@ -689,7 +689,7 @@ def main():
     if args.test_mode:
         args.batch_size = 4
         args.track_batches = True  # 测试模式自动启用batch追踪
-        print("🧪 启用测试模式: batch_size=4, 完整追踪验证")
+        print("🧪 启用测试模式: batch_size=4, 训练20步用于验证")
     
     # 验证数据集名称
     valid_datasets = ['arc-challenge', 'arc-easy', 'boolq', 'hellaswag', 'openbookqa', 'piqa', 'winogrande']
@@ -704,7 +704,7 @@ def main():
     print(f"配置文件: {args.config}")
     print(f"Batch大小: {args.batch_size}")
     print(f"Batch追踪: {'启用' if args.track_batches else '禁用'}")
-    print(f"运行模式: {'测试模式' if args.test_mode else 'Dry Run' if args.dry_run else '实际训练'}")
+    print(f"运行模式: {'测试模式(20步)' if args.test_mode else 'Dry Run' if args.dry_run else '完整训练(125步)'}")
     print(f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 70)
     
