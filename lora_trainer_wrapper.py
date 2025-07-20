@@ -38,6 +38,10 @@ class TrackingLoRATrainer:
     def track_batch(self, step: int, batch_data: Dict[str, Any]) -> None:
         """记录单个batch的信息"""
         try:
+            # 调试信息：检查batch数据结构
+            if step == 0:  # 只在第一步打印调试信息
+                print(f"🔍 调试batch结构: type={type(batch_data)}, keys={list(batch_data.keys()) if hasattr(batch_data, 'keys') else 'N/A'}")
+            
             # 提取sample信息
             samples = []
             if isinstance(batch_data, list):
@@ -48,6 +52,18 @@ class TrackingLoRATrainer:
                         "epoch": sample.get('_epoch', -1),
                         "has_input": 'input' in sample,
                         "has_output": 'output' in sample
+                    }
+                    samples.append(sample_info)
+            elif isinstance(batch_data, dict):
+                # 处理字典格式的batch（可能来自custom_collate_fn）
+                batch_size = len(batch_data.get('input', [])) if 'input' in batch_data else len(next(iter(batch_data.values())))
+                for i in range(batch_size):
+                    sample_info = {
+                        "batch_index": i,
+                        "source_line": batch_data.get('_source_line', [-1] * batch_size)[i] if '_source_line' in batch_data else -1,
+                        "epoch": batch_data.get('_epoch', [-1] * batch_size)[i] if '_epoch' in batch_data else -1,
+                        "has_input": 'input' in batch_data,
+                        "has_output": 'output' in batch_data
                     }
                     samples.append(sample_info)
             else:
@@ -115,6 +131,11 @@ class TrackingLoRATrainer:
         
         # 启动并行batch追踪
         import threading
+        import os
+        
+        # 设置tokenizers环境变量避免fork警告
+        os.environ["TOKENIZERS_PARALLELISM"] = "false"
+        
         tracking_active = {"active": True}
         
         def parallel_batch_tracking():
