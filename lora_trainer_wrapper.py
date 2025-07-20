@@ -77,9 +77,6 @@ class TrackingLoRATrainer:
             # 写入JSONL文件
             with open(self.tracking_log_file, 'a', encoding='utf-8') as f:
                 f.write(json.dumps(batch_record, ensure_ascii=False) + '\n')
-            
-            if step % 10 == 0:  # 每10步打印一次
-                print(f"📝 Step {step}: 追踪了{len(samples)}个样本")
                 
         except Exception as e:
             print(f"⚠️  追踪第{step}步时出错: {e}")
@@ -98,7 +95,7 @@ class TrackingLoRATrainer:
         }
         
         self.checkpoint_mappings[checkpoint_name] = checkpoint_info
-        print(f"🎯 记录checkpoint: {checkpoint_name} (步骤 {batch_range[0]}-{batch_range[1]})")
+        # 不打印单个checkpoint，在最后统一报告
     
     def train_with_tracking(self, dataloader, config: Dict[str, Any], 
                            checkpoint_steps: List[int]) -> Dict[str, Any]:
@@ -107,7 +104,14 @@ class TrackingLoRATrainer:
         print(f"\n🚀 开始带追踪的LoRA训练...")
         print(f"📊 配置:")
         print(f"  - 最大步数: {config['training']['max_steps']}")
-        print(f"  - Checkpoint步骤: {checkpoint_steps}")
+        print(f"  - Checkpoint步骤: {len(checkpoint_steps)}个 (步骤{min(checkpoint_steps)}-{max(checkpoint_steps)})")
+        
+        # 预先生成checkpoint映射（静默）
+        for checkpoint_step in checkpoint_steps:
+            checkpoint_name = f"checkpoint-{checkpoint_step}"
+            # 每个checkpoint对应前一步的数据
+            self.track_checkpoint(checkpoint_step, checkpoint_name, 
+                                (checkpoint_step - 1, checkpoint_step - 1))
         
         # 启动并行batch追踪
         import threading
@@ -119,18 +123,10 @@ class TrackingLoRATrainer:
             batch_iter = iter(dataloader)
             max_steps = config['training']['max_steps']
             
-            print(f"📊 开始parallel batch追踪 (目标{max_steps}步)")
-            
             while step < max_steps and tracking_active["active"]:
                 try:
                     batch = next(batch_iter)
                     self.track_batch(step, batch)
-                    
-                    # 检查checkpoint
-                    if (step + 1) in checkpoint_steps:
-                        prev_step = max([s for s in checkpoint_steps if s <= step], default=0)
-                        self.track_checkpoint(step + 1, f"checkpoint-{step + 1}", 
-                                            (prev_step, step))
                     
                     step += 1
                     time.sleep(0.01)  # 小延迟避免过度占用资源
@@ -145,8 +141,6 @@ class TrackingLoRATrainer:
                 except Exception as e:
                     print(f"⚠️  Batch追踪异常: {e}")
                     break
-            
-            print(f"📊 Batch追踪完成，共追踪{step}步")
         
         # 启动追踪线程
         tracking_thread = threading.Thread(target=parallel_batch_tracking, daemon=True)

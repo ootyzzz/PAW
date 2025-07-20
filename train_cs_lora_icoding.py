@@ -8,23 +8,38 @@ train_cs_lora_icoding.py
 🚀 服务器运行所有数据集命令 (batch_size=32, 完整训练):
 ======================================================================
 
-# 运行所有7个数据集的完整训练命令:
-python train_cs_lora_icoding.py --dataset arc-challenge --batch_size 32 --track_batches
-python train_cs_lora_icoding.py --dataset arc-easy --batch_size 32 --track_batches
-python train_cs_lora_icoding.py --dataset boolq --batch_size 32 --track_batches
-python train_cs_lora_icoding.py --dataset hellaswag --batch_size 32 --track_batches
-python train_cs_lora_icoding.py --dataset openbookqa --batch_size 32 --track_batches
-python train_cs_lora_icoding.py --dataset piqa --batch_size 32 --track_batches
-python train_cs_lora_icoding.py --dataset winogrande --batch_size 32 --track_batches
+# 运行所有7个数据集的完整训练命令 (自动优化batch size):
+python train_cs_lora_icoding.py --dataset arc-challenge --track_batches    # batch_size=8  (1119样本)
+python train_cs_lora_icoding.py --dataset arc-easy --track_batches         # batch_size=16 (2251样本) 
+python train_cs_lora_icoding.py --dataset boolq --track_batches            # batch_size=32 (9427样本)
+python train_cs_lora_icoding.py --dataset hellaswag --track_batches        # batch_size=32 (39905样本)
+python train_cs_lora_icoding.py --dataset openbookqa --track_batches       # batch_size=32 (4957样本)
+python train_cs_lora_icoding.py --dataset piqa --track_batches             # batch_size=32 (16113样本)
+python train_cs_lora_icoding.py --dataset winogrande --track_batches       # batch_size=32 (40398样本)
 
-# 或者可以写成一行脚本:
-for dataset in arc-challenge arc-easy boolq hellaswag openbookqa piqa winogrande; do python train_cs_lora_icoding.py --dataset $dataset --batch_size 32 --track_batches; done
+# 或者手动指定batch size (如果需要):
+python train_cs_lora_icoding.py --dataset arc-challenge --batch_size 8 --track_batches
+python train_cs_lora_icoding.py --dataset arc-easy --batch_size 16 --track_batches
+
+# Bash批量执行脚本 (自动优化batch size):
+for dataset in arc-challenge arc-easy boolq hellaswag openbookqa piqa winogrande; do 
+    echo "🚀 开始训练 $dataset (自动batch size)..."
+    python train_cs_lora_icoding.py --dataset $dataset --track_batches
+    echo "✅ $dataset 训练完成"
+done
+
+# PowerShell版本 (自动优化batch size):
+foreach ($dataset in @("arc-challenge", "arc-easy", "boolq", "hellaswag", "openbookqa", "piqa", "winogrande")) {
+    Write-Host "🚀 开始训练 $dataset (自动batch size)..."
+    python train_cs_lora_icoding.py --dataset $dataset --track_batches
+    Write-Host "✅ $dataset 训练完成"
+}
 
 ======================================================================
 
 配置特点:
-- Batch size: 32 (服务器) / 4 (本地测试)
-- Training steps: 125 (正常) / 20 (测试)
+- Batch size: 自动选择最优值 (小数据集8/16，大数据集32) / 4 (本地测试)
+- Training steps: 125步 (统一)
 - Checkpoint频率: 每50步保存
 - 数据加载: 严格顺序，可追踪每个batch的source行号
 - 真实训练: 本地和服务器都执行真实LoRA训练
@@ -33,7 +48,7 @@ for dataset in arc-challenge arc-easy boolq hellaswag openbookqa piqa winogrande
 # 服务器环境 - batch size 32, 完整125步训练
 python train_cs_lora_icoding.py --dataset arc-challenge
 
-# 本地测试 - batch size 4, 20步验证训练
+# 本地测试 - batch size 4, 完整125步训练
 python train_cs_lora_icoding.py --dataset arc-challenge --test_mode
 
 # 自定义batch size
@@ -235,9 +250,83 @@ class BatchTracker:
         }
 
 
-def create_icoding_config(dataset_name: str, base_config: Dict[str, Any], batch_size: int = 32) -> Dict[str, Any]:
+def get_optimal_batch_size(dataset_name: str, target_steps: int = 125) -> int:
+    """根据数据集大小自动选择最优batch size"""
+    
+    # 预估的数据集大小（基于实际文件）
+    dataset_sizes = {
+        'arc-challenge': 1119,
+        'arc-easy': 2251, 
+        'boolq': 9427,
+        'hellaswag': 39905,
+        'openbookqa': 4957,
+        'piqa': 16113,
+        'winogrande': 40398
+    }
+    
+    if dataset_name not in dataset_sizes:
+        print(f"⚠️ 未知数据集 {dataset_name}，使用默认batch_size=32")
+        return 32
+    
+    dataset_size = dataset_sizes[dataset_name]
+    
+    # 目标：让125步尽可能不需要循环，或者最少循环
+    ideal_batch_size = dataset_size // target_steps
+    
+    # 选择合适的batch size（优先选择8的倍数，适合GPU）
+    if dataset_size <= 1200:  # 小数据集
+        return 8
+    elif dataset_size <= 2500:  # 中小数据集  
+        return 16
+    else:  # 大数据集
+        return 32
+
+def analyze_batch_efficiency(dataset_name: str, batch_size: int, target_steps: int = 125):
+    """分析batch size效率"""
+    dataset_sizes = {
+        'arc-challenge': 1119,
+        'arc-easy': 2251, 
+        'boolq': 9427,
+        'hellaswag': 39905,
+        'openbookqa': 4957,
+        'piqa': 16113,
+        'winogrande': 40398
+    }
+    
+    if dataset_name not in dataset_sizes:
+        return
+        
+    dataset_size = dataset_sizes[dataset_name]
+    total_samples_needed = batch_size * target_steps
+    epochs_needed = total_samples_needed / dataset_size
+    
+    print(f"📊 Batch效率分析:")
+    print(f"  - 数据集: {dataset_name} ({dataset_size} 样本)")
+    print(f"  - Batch大小: {batch_size}")
+    print(f"  - {target_steps}步需要: {total_samples_needed} 样本")
+    print(f"  - 需要循环: {epochs_needed:.2f} epochs")
+    
+    if epochs_needed <= 1.1:
+        print(f"  ✅ 效率很好：几乎无数据重复")
+    elif epochs_needed <= 2.0:
+        print(f"  🔄 效率一般：少量数据重复") 
+    else:
+        print(f"  ⚠️ 效率较低：大量数据重复")
+    
+    return epochs_needed
+
+
+def create_icoding_config(dataset_name: str, base_config: Dict[str, Any], batch_size: int = None) -> Dict[str, Any]:
     """创建icoding环境的训练配置"""
     config = base_config.copy()
+    
+    # 自动选择最优batch size（如果未指定）
+    if batch_size is None:
+        batch_size = get_optimal_batch_size(dataset_name)
+        print(f"🎯 自动选择batch_size={batch_size}用于{dataset_name}")
+    
+    # 分析batch效率
+    analyze_batch_efficiency(dataset_name, batch_size)
     
     # 更新数据路径
     config['data']['train_file'] = f"data_to_lora/cs/{dataset_name}/{dataset_name}_train_formatted.jsonl"
@@ -251,7 +340,7 @@ def create_icoding_config(dataset_name: str, base_config: Dict[str, Any], batch_
         'per_device_train_batch_size': batch_size,  # 可配置batch size
         'gradient_accumulation_steps': 1,
         'max_steps': 125,  # 固定步数
-        'save_steps': 50,  # checkpoint频率
+        'save_steps': 1,  # 每步都检查是否需要保存
         'logging_steps': 1,
         'dataloader_num_workers': 4,  # 服务器优化
         'dataloader_pin_memory': True,
@@ -298,12 +387,14 @@ def run_icoding_experiment(dataset_name: str, base_config: Dict[str, Any], track
     
     print(f"📁 数据文件: {data_file}")
     print(f"🎯 输出目录: {config['training']['output_dir']}")
-    print(f"📊 训练配置: batch_size={batch_size}, steps=125, checkpoint_every=50")
+    print(f"📊 训练配置: batch_size={config['training']['per_device_train_batch_size']}, steps=125, checkpoint_every=50")
     
     if dry_run:
         # 分析数据分布
         dataset = SequentialTrackingDataset(data_file, dataset_name)
-        analyze_data_distribution(dataset, batch_size=batch_size, total_steps=125)
+        # 确保使用实际的batch_size而不是函数参数中的batch_size
+        actual_batch_size = config['training']['per_device_train_batch_size']
+        analyze_data_distribution(dataset, batch_size=actual_batch_size, total_steps=125)
         return {"status": "dry_run_completed"}
     
     try:
@@ -340,14 +431,25 @@ def run_icoding_experiment(dataset_name: str, base_config: Dict[str, Any], track
         
         # 执行真实LoRA训练
         if test_mode:
-            # 测试模式：本地验证，使用较少步数观察效果
-            config['training']['max_steps'] = 20  # 测试模式步数
-            checkpoint_steps = [10, 20]
-            print(f"🧪 测试模式: 训练{config['training']['max_steps']}步用于验证")
+            # 测试模式：本地验证，使用小batch_size但完整125步训练
+            # Steps 76-125: 每步都保存 (50个checkpoint)
+            checkpoint_steps = list(range(76, 126))  # [76, 77, 78, ..., 125]
+            print(f"🧪 测试模式: batch_size=4, 训练{config['training']['max_steps']}步")
         else:
-            # 正常模式：完整训练125步
-            checkpoint_steps = [50, 100, 125]
+            # 正常模式：服务器训练，同样的保存策略
+            # Steps 76-125: 每步都保存 (50个checkpoint) 
+            checkpoint_steps = list(range(76, 126))  # [76, 77, 78, ..., 125]
             print(f"🚀 正常模式: 训练{config['training']['max_steps']}步")
+        
+        # 动态生成checkpoint策略说明
+        if checkpoint_steps:
+            first_ckpt = min(checkpoint_steps)
+            last_ckpt = max(checkpoint_steps)
+            no_save_steps = first_ckpt - 1
+            save_count = len(checkpoint_steps)
+            print(f"📊 Checkpoint策略: Steps 1-{no_save_steps}不保存, Steps {first_ckpt}-{last_ckpt}每步保存 (共{save_count}个)")
+        else:
+            print(f"📊 Checkpoint策略: 训练{config['training']['max_steps']}步，不保存checkpoint")
         
         # 统一使用真实LoRA训练
         results = run_actual_lora_training(
@@ -463,6 +565,17 @@ def run_actual_lora_training(
             
             # 创建追踪wrapper
             tracking_trainer = TrackingLoRATrainer(trainer, output_dir)
+            
+            # 动态生成保存策略说明
+            max_steps = config['training']['max_steps']
+            if checkpoint_steps:
+                first_ckpt = min(checkpoint_steps)
+                last_ckpt = max(checkpoint_steps)
+                no_save_steps = first_ckpt - 1
+                save_count = len(checkpoint_steps)
+                print(f"🔄 保存策略: 前{no_save_steps}步不保存, 第{first_ckpt}-{last_ckpt}步每步保存checkpoint (共{save_count}个)")
+            else:
+                print(f"🔄 保存策略: 训练{max_steps}步，不保存checkpoint")
             
             # 使用wrapper执行训练
             return tracking_trainer.train_with_tracking(dataloader, config, checkpoint_steps)
@@ -679,17 +792,18 @@ def main():
     parser.add_argument("--dry_run", action="store_true",
                        help="干运行，分析数据分布但不实际训练")
     parser.add_argument("--test_mode", action="store_true",
-                       help="测试模式，使用batch size 4进行较少步数的训练验证（20步vs125步）")
-    parser.add_argument("--batch_size", type=int, default=32,
-                       help="批处理大小 (默认32适合服务器，本地测试建议4)")
+                       help="测试模式，使用batch size 4进行完整125步训练（适合本地环境验证）")
+    parser.add_argument("--batch_size", type=int, default=None,
+                       help="批处理大小 (默认自动选择: 小数据集用8/16，大数据集用32)")
     
     args = parser.parse_args()
     
     # 测试模式下强制设置小batch size
     if args.test_mode:
-        args.batch_size = 4
+        if args.batch_size is None:
+            args.batch_size = 4  # 测试模式统一用4
         args.track_batches = True  # 测试模式自动启用batch追踪
-        print("🧪 启用测试模式: batch_size=4, 训练20步用于验证")
+        print(f"🧪 启用测试模式: batch_size={args.batch_size}, 训练125步用于验证")
     
     # 验证数据集名称
     valid_datasets = ['arc-challenge', 'arc-easy', 'boolq', 'hellaswag', 'openbookqa', 'piqa', 'winogrande']
@@ -702,9 +816,9 @@ def main():
     print("=" * 70)
     print(f"目标数据集: {args.dataset}")
     print(f"配置文件: {args.config}")
-    print(f"Batch大小: {args.batch_size}")
+    print(f"Batch大小: {args.batch_size if args.batch_size else '自动选择'}")
     print(f"Batch追踪: {'启用' if args.track_batches else '禁用'}")
-    print(f"运行模式: {'测试模式(20步)' if args.test_mode else 'Dry Run' if args.dry_run else '完整训练(125步)'}")
+    print(f"运行模式: {'测试模式(125步)' if args.test_mode else 'Dry Run' if args.dry_run else '完整训练(125步)'}")
     print(f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 70)
     
