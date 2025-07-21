@@ -105,9 +105,9 @@ def load_and_clean_sample(line: str, line_num: int) -> Dict[str, Any]:
             sol1 = original_data.get('sol1', '').strip()
             sol2 = original_data.get('sol2', '').strip()
             options = [sol1, sol2]
-            # PIQA数据集通常没有标准答案
-            target_idx = -1
-            target = ""
+            answer = original_data.get('answer', -1)
+            target_idx = int(answer) if isinstance(answer, (int, str)) and str(answer).isdigit() else -1
+            target = options[target_idx] if 0 <= target_idx < len(options) else ""
             task_type = "physical_reasoning"
             
         elif dataset == 'winogrande':

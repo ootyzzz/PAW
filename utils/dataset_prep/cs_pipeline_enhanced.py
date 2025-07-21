@@ -175,12 +175,19 @@ def standardize_format(data: List[Dict[str, Any]], dataset_name: str) -> List[Di
             })
             
         elif dataset_name == 'piqa':
-            # PIQA格式: goal, sol1, sol2 (没有label)
+            # PIQA格式: goal, sol1, sol2, answer
+            choices = [item.get("sol1", ""), item.get("sol2", "")]
+            answer_idx = item.get("answer", -1)
+            if isinstance(answer_idx, (int, str)) and str(answer_idx).isdigit():
+                answer_idx = int(answer_idx)
+            else:
+                answer_idx = -1
+                
             standard_item.update({
                 "question": item.get("goal", ""),
-                "choices": [item.get("sol1", ""), item.get("sol2", "")],
-                "answer_index": -1,  # PIQA没有标准答案标签
-                "answer": ""  # 没有预定义答案
+                "choices": choices,
+                "answer_index": answer_idx,
+                "answer": choices[answer_idx] if answer_idx >= 0 and answer_idx < len(choices) else ""
             })
             
         elif dataset_name == 'winogrande':
