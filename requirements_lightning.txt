@@ -1,0 +1,4 @@
+pytorch-lightning>=2.0.0
+lightning>=2.0.0
+swanlab>=0.3.0
+tensorboard>=2.10.0
