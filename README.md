@@ -1,7 +1,5 @@
 # P2W
 
-bash [run_all_datasets.sh](http://_vscodecontentref_/0)
-
 ## 🤝 贡献
 
 欢迎提交Issue和Pull Request！
