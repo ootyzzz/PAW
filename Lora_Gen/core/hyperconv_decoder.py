@@ -1,6 +1,6 @@
 """
 hyperconv_decoder.py
-实现 Hyper-Convolution Parameter Generator（严格按 DnD 论文 A.3）
+实现 Hyper-Convolution Parameter Generator
 """
 import torch
 import torch.nn as nn

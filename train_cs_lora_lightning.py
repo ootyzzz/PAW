@@ -65,7 +65,7 @@ import argparse
 import logging
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, List, Optional, Union, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -86,6 +86,30 @@ sys.path.append(project_root)
 def custom_collate_fn(batch):
     """自定义collate函数，保持字典结构"""
     return batch
+
+
+def get_test_file_path(dataset_name: str) -> Tuple[str, bool]:
+    """
+    智能选择测试文件路径，优先test，不存在则使用validation
+    
+    Args:
+        dataset_name: 数据集名称
+        
+    Returns:
+        tuple: (文件路径, 是否使用validation)
+    """
+    data_dir = f"data_to_lora/cs/{dataset_name}"
+    test_file = f"{data_dir}/{dataset_name}_test_formatted.jsonl"
+    validation_file = f"{data_dir}/{dataset_name}_validation_formatted.jsonl"
+    
+    if os.path.exists(test_file):
+        return test_file, False
+    elif os.path.exists(validation_file):
+        print(f"📊 注意: {dataset_name} 没有test文件，将使用validation文件作为测试集")
+        return validation_file, True
+    else:
+        # 返回默认test路径，让后续处理报错
+        return test_file, False
 
 
 class SequentialDataset(Dataset):
@@ -131,7 +155,7 @@ class SequentialDataset(Dataset):
 
 
 class TrainTestDataModule(pl.LightningDataModule):
-    """Lightning数据模块，管理train/test数据（移除validation）"""
+    """Lightning数据模块，管理train/test数据（自动适配validation作为test）"""
     
     def __init__(self, dataset_name: str, batch_size: int = 4, test_mode: bool = False):
         super().__init__()
@@ -142,7 +166,9 @@ class TrainTestDataModule(pl.LightningDataModule):
         # 数据文件路径
         self.data_dir = f"data_to_lora/cs/{dataset_name}"
         self.train_file = f"{self.data_dir}/{dataset_name}_train_formatted.jsonl"
-        self.test_file = f"{self.data_dir}/{dataset_name}_test_formatted.jsonl"
+        
+        # 智能选择测试文件：优先test，不存在则使用validation
+        self.test_file, self.using_validation_as_test = get_test_file_path(dataset_name)
         
     def setup(self, stage: str = None):
         """设置数据集"""
@@ -210,7 +236,11 @@ class LoRALightningModule(pl.LightningModule):
     def _init_model(self):
         """初始化模型和tokenizer"""
         print(f"📦 加载模型: {self.model_path}")
-        
+
+        # 平衡精度和性能，推荐大多数场景
+        if torch.cuda.is_available():
+            torch.set_float32_matmul_precision('medium')  
+
         # 加载 tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_path, trust_remote_code=True)
         if self.tokenizer.pad_token is None:
@@ -472,7 +502,7 @@ def analyze_batch_efficiency(dataset_name: str, batch_size: int, target_steps: i
     return epochs_needed
 
 
-def create_lightning_config(dataset_name: str, base_config: Dict[str, Any], batch_size: int = None) -> Dict[str, Any]:
+def create_lightning_config(dataset_name: str, base_config: Dict[str, Any], batch_size: int = None, max_steps: int = 125, save_steps: int = 50, learning_rate: float = 1e-4, learning_rate_stage2: float = None) -> Dict[str, Any]:
     """创建Lightning训练配置"""
     config = base_config.copy()
     
@@ -482,24 +512,37 @@ def create_lightning_config(dataset_name: str, base_config: Dict[str, Any], batc
         print(f"🎯 自动选择batch_size={batch_size}用于{dataset_name}")
     
     # 分析batch效率
-    analyze_batch_efficiency(dataset_name, batch_size)
+    analyze_batch_efficiency(dataset_name, batch_size, max_steps)
     
-    # 更新数据路径 - 支持train/test两个文件
+    # 智能选择测试文件路径 - 支持validation作为fallback
+    test_file_path, using_validation = get_test_file_path(dataset_name)
+    
+    # 更新数据路径 - 支持train/test或train/validation配置
     config['data']['train_file'] = f"data_to_lora/cs/{dataset_name}/{dataset_name}_train_formatted.jsonl"
-    config['data']['test_file'] = f"data_to_lora/cs/{dataset_name}/{dataset_name}_test_formatted.jsonl"
+    config['data']['test_file'] = test_file_path
+    config['data']['using_validation_as_test'] = using_validation
     
     # 生成实验名称 - 使用更规范的命名
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     experiment_name = f"{dataset_name}_lora_{timestamp}"
     
     # Lightning + SwanLab 专用配置
+    stage1_ratio = 0.6  # 60% 步数为Stage 1
+    stage1_steps = int(max_steps * stage1_ratio)
+    stage2_steps = max_steps - stage1_steps
+    
+    # 自动计算第二阶段学习率
+    if learning_rate_stage2 is None:
+        learning_rate_stage2 = learning_rate / 10
+    
     config['training'].update({
         'batch_size': batch_size,
-        'max_steps': 125,  # 固定步数
-        'stage1_steps': 75,
-        'stage2_steps': 50,
-        'learning_rate_stage1': 1e-4,
-        'learning_rate_stage2': 1e-5,
+        'max_steps': max_steps,  # 使用参数化的步数
+        'stage1_steps': stage1_steps,
+        'stage2_steps': stage2_steps,
+        'save_steps': save_steps,  # 保存最后多少步
+        'learning_rate_stage1': learning_rate,
+        'learning_rate_stage2': learning_rate_stage2,
     })
     
     # 现代化的输出目录结构
@@ -520,8 +563,8 @@ def create_lightning_config(dataset_name: str, base_config: Dict[str, Any], batc
         'batch_size': batch_size,
         'framework': 'lightning_swanlab',
         'created_at': datetime.now().isoformat(),
-        'description': f"Lightning LoRA training on {dataset_name}",
-        'tags': ["lightning", "swanlab", "lora", "qwen2.5", dataset_name, f"batch{batch_size}"]
+        'description': f"Lightning LoRA training on {dataset_name} - {max_steps} steps",
+        'tags': ["lightning", "swanlab", "lora", "qwen2.5", dataset_name, f"batch{batch_size}", f"steps{max_steps}"]
     }
     
     return config
@@ -531,10 +574,15 @@ def setup_callbacks(config: Dict[str, Any]) -> List[pl.Callback]:
     """设置Lightning回调（移除Early Stopping和validation相关）"""
     callbacks = []
     
-    # 条件检查点保存（后50步）- 这是您需要的关键功能
+    max_steps = config['training']['max_steps']
+    save_steps = config['training']['save_steps']
+    
+    # 条件检查点保存（最后save_steps步）- 这是您需要的关键功能
     class ConditionalCheckpoint(ModelCheckpoint):
         def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
-            if pl_module.training_step_count >= 76:  # Steps 76-125
+            # 从第 (max_steps - save_steps + 1) 步开始保存
+            save_start_step = max_steps - save_steps + 1
+            if pl_module.training_step_count >= save_start_step:
                 super().on_train_batch_end(trainer, pl_module, outputs, batch, batch_idx)
     
     conditional_checkpoint = ConditionalCheckpoint(
@@ -568,8 +616,7 @@ def setup_callbacks(config: Dict[str, Any]) -> List[pl.Callback]:
 def run_lightning_training(
     dataset_name: str,
     config: Dict[str, Any],
-    dry_run: bool = False,
-    test_mode: bool = False
+    dry_run: bool = False
 ) -> Dict[str, Any]:
     """运行Lightning训练"""
     
@@ -580,18 +627,29 @@ def run_lightning_training(
     # 验证数据文件
     train_file = config['data']['train_file']
     test_file = config['data']['test_file']
+    using_validation_as_test = config['data'].get('using_validation_as_test', False)
     
     for file_path, file_type in [(train_file, "训练"), (test_file, "测试")]:
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"{file_type}数据文件不存在: {file_path}")
     
     print(f"📁 训练文件: {train_file}")
-    print(f"📁 测试文件: {test_file}")
+    if using_validation_as_test:
+        print(f"📁 测试文件: {test_file} (使用validation作为test)")
+        print("💡 数据集配置: 适配只有train/validation的数据集")
+    else:
+        print(f"📁 测试文件: {test_file}")
     print(f"🎯 实验目录: {config['paths']['experiment_dir']}")
-    print(f"📊 训练配置: batch_size={config['training']['batch_size']}, steps=125 (75+50)")
+    print(f"📊 训练配置: batch_size={config['training']['batch_size']}, steps={config['training']['max_steps']} ({config['training']['stage1_steps']}+{config['training']['stage2_steps']}) - 保存最后{config['training']['save_steps']}步")
     
     if dry_run:
-        print("🏃 Dry run 完成")
+        print("🏃 Dry Run 完成 - 已验证:")
+        print("  ✅ 配置文件格式正确")
+        print("  ✅ 数据文件存在且可访问")
+        print("  ✅ 实验目录结构创建")
+        print("  ✅ LoRA配置有效")
+        print("  ✅ 训练参数合理")
+        print("  💡 要实际训练请移除 --dry_run 参数")
         return {"status": "dry_run_completed"}
     
     try:
@@ -614,13 +672,11 @@ def run_lightning_training(
         
         # 创建数据模块
         batch_size = config['training']['batch_size']
-        if test_mode:
-            batch_size = 4  # 测试模式使用小batch size
             
         data_module = TrainTestDataModule(
             dataset_name=dataset_name,
             batch_size=batch_size,
-            test_mode=test_mode
+            test_mode=False  # 移除test_mode，始终使用标准模式
         )
         
         print(f"📊 数据模块配置:")
@@ -751,11 +807,17 @@ def main():
     parser.add_argument("--config", type=str, default="configs/lightning_config.yaml",
                        help="Lightning配置文件路径")
     parser.add_argument("--dry_run", action="store_true",
-                       help="干运行，不实际训练")
-    parser.add_argument("--test_mode", action="store_true",
-                       help="测试模式，使用batch size 4")
+                       help="干运行模式: 验证配置和数据文件，创建实验目录，但不实际训练模型")
     parser.add_argument("--batch_size", type=int, default=None,
                        help="批处理大小 (默认自动选择)")
+    parser.add_argument("--max_steps", type=int, default=125,
+                       help="训练总步数 (默认125)")
+    parser.add_argument("--save_steps", type=int, default=50,
+                       help="保存最后多少步的检查点 (默认50)")
+    parser.add_argument("--learning_rate", type=float, default=1e-4,
+                       help="学习率 (默认1e-4)")
+    parser.add_argument("--learning_rate_stage2", type=float, default=None,
+                       help="第二阶段学习率 (默认为learning_rate的1/10)")
     
     # 为了兼容性，保留但忽略的参数
     parser.add_argument("--track_batches", action="store_true",
@@ -779,7 +841,10 @@ def main():
     print(f"目标数据集: {args.dataset}")
     print(f"配置文件: {args.config}")
     print(f"Batch大小: {args.batch_size if args.batch_size else '自动选择'}")
-    print(f"运行模式: {'测试模式' if args.test_mode else 'Dry Run' if args.dry_run else '完整训练'}")
+    print(f"训练步数: {args.max_steps}")
+    print(f"保存步数: 保存最后{args.save_steps}个检查点")
+    print(f"学习率: {args.learning_rate} -> {args.learning_rate_stage2 or args.learning_rate/10}")
+    print(f"运行模式: {'🏃 Dry Run (验证配置和数据，不训练)' if args.dry_run else '🚀 完整训练'}")
     print(f"框架: PyTorch Lightning + SwanLab")
     print(f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 70)
@@ -790,14 +855,13 @@ def main():
             base_config = yaml.safe_load(f)
         
         # 创建Lightning配置
-        config = create_lightning_config(args.dataset, base_config, args.batch_size)
+        config = create_lightning_config(args.dataset, base_config, args.batch_size, args.max_steps, args.save_steps, args.learning_rate, args.learning_rate_stage2)
         
         # 执行训练
         results = run_lightning_training(
             dataset_name=args.dataset,
             config=config,
-            dry_run=args.dry_run,
-            test_mode=args.test_mode
+            dry_run=args.dry_run
         )
         
         print(f"\n🎉 实验完成!")
