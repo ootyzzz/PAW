@@ -1,0 +1,78 @@
+{
+  "generator_checkpoint": "Lora_Gen\\experiments\\lora_generator_20250721_224455\\checkpoints\\last.ckpt",
+  "test_data": "../data_to_lora/cs/arc-challenge/arc-challenge_test_formatted.jsonl",
+  "device": "cuda",
+  "generation_results": {
+    "num_prompts": 28,
+    "generation_stats": [
+      {
+        "prompt_length": 1693,
+        "token_shape": [
+          512,
+          384
+        ],
+        "token_mean": -3.109317185590044e-05,
+        "token_std": 0.013073930516839027,
+        "token_min": -0.05650430545210838,
+        "token_max": 0.06519674509763718
+      },
+      {
+        "prompt_length": 1374,
+        "token_shape": [
+          512,
+          384
+        ],
+        "token_mean": -3.117077721981332e-05,
+        "token_std": 0.013088714331388474,
+        "token_min": -0.05669984221458435,
+        "token_max": 0.06520020961761475
+      },
+      {
+        "prompt_length": 784,
+        "token_shape": [
+          512,
+          384
+        ],
+        "token_mean": -3.115138315479271e-05,
+        "token_std": 0.013092763721942902,
+        "token_min": -0.056764598935842514,
+        "token_max": 0.06538970023393631
+      },
+      {
+        "prompt_length": 1214,
+        "token_shape": [
+          512,
+          384
+        ],
+        "token_mean": -3.1414667319040745e-05,
+        "token_std": 0.01313234493136406,
+        "token_min": -0.05688207224011421,
+        "token_max": 0.06549936532974243
+      },
+      {
+        "prompt_length": 1001,
+        "token_shape": [
+          512,
+          384
+        ],
+        "token_mean": -3.146214294247329e-05,
+        "token_std": 0.013149985112249851,
+        "token_min": -0.05706633999943733,
+        "token_max": 0.06553196907043457
+      }
+    ],
+    "consistency_score": 3.211950752302073e-05
+  },
+  "baseline_metrics": {
+    "accuracy": 0.22,
+    "correct": 11,
+    "total": 50,
+    "model_type": "random_baseline"
+  },
+  "summary": {
+    "generator_loaded": true,
+    "prompts_processed": 28,
+    "generation_success": true,
+    "baseline_accuracy": 0.22
+  }
+}

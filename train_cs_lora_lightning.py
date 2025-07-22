@@ -19,13 +19,16 @@ python train_cs_lora_lightning.py --dataset winogrande
 
 # 自定义参数
 python train_cs_lora_lightning.py --dataset arc-challenge --batch_size 16
-python train_cs_lora_lightning.py --dataset arc-challenge --test_mode
 python train_cs_lora_lightning.py --dataset arc-challenge --dry_run
+
+# SwanLab 团队协作配置
+python train_cs_lora_lightning.py --dataset arc-challenge --swanlab_project "team-lora-experiments"
+python train_cs_lora_lightning.py --dataset arc-challenge --swanlab_project "team-lora-experiments" --swanlab_workspace "your-team-name"
 
 # 批量执行 (PowerShell)
 foreach ($dataset in @("arc-challenge", "arc-easy", "boolq", "hellaswag", "openbookqa", "piqa", "winogrande")) {
     Write-Host "🚀 开始训练 $dataset..."
-    python train_cs_lora_lightning.py --dataset $dataset
+    python train_cs_lora_lightning.py --dataset $dataset --swanlab_project "team-lora-experiments"
     Write-Host "✅ $dataset 训练完成"
 }
 
@@ -616,6 +619,8 @@ def setup_callbacks(config: Dict[str, Any]) -> List[pl.Callback]:
 def run_lightning_training(
     dataset_name: str,
     config: Dict[str, Any],
+    swanlab_project: str = None,
+    swanlab_workspace: str = None,
     dry_run: bool = False
 ) -> Dict[str, Any]:
     """运行Lightning训练"""
@@ -663,12 +668,31 @@ def run_lightning_training(
         
         # 初始化 SwanLab
         print("📊 初始化 SwanLab...")
-        swanlab_run = swanlab.init(
-            project=f"lora-training",
-            experiment_name=config['experiment']['name'],
-            config=config,
-            logdir=config['paths']['swanlab_dir']
-        )
+        
+        # 智能确定项目名称
+        if swanlab_project:
+            project_name = swanlab_project
+        else:
+            # 默认项目名称，支持个人和团队使用
+            import getpass
+            current_user = getpass.getuser()
+            project_name = f"lora-training-{current_user}"
+        
+        # SwanLab初始化参数
+        swanlab_params = {
+            "project": project_name,
+            "experiment_name": config['experiment']['name'],
+            "config": config,
+            "logdir": config['paths']['swanlab_dir']
+        }
+        
+        # 如果指定了工作区，添加工作区参数（用于团队协作）
+        if swanlab_workspace:
+            swanlab_params["workspace"] = swanlab_workspace
+            print(f"🏢 使用团队工作区: {swanlab_workspace}")
+        
+        print(f"📂 SwanLab项目: {project_name}")
+        swanlab_run = swanlab.init(**swanlab_params)
         
         # 创建数据模块
         batch_size = config['training']['batch_size']
@@ -818,6 +842,10 @@ def main():
                        help="学习率 (默认1e-4)")
     parser.add_argument("--learning_rate_stage2", type=float, default=None,
                        help="第二阶段学习率 (默认为learning_rate的1/10)")
+    parser.add_argument("--swanlab_project", type=str, default=None,
+                       help="SwanLab项目名称 (默认: lora-training-{用户名或团队名})")
+    parser.add_argument("--swanlab_workspace", type=str, default=None,
+                       help="SwanLab工作区名称 (用于团队协作)")
     
     # 为了兼容性，保留但忽略的参数
     parser.add_argument("--track_batches", action="store_true",
@@ -844,6 +872,17 @@ def main():
     print(f"训练步数: {args.max_steps}")
     print(f"保存步数: 保存最后{args.save_steps}个检查点")
     print(f"学习率: {args.learning_rate} -> {args.learning_rate_stage2 or args.learning_rate/10}")
+    
+    # SwanLab配置信息
+    import getpass
+    current_user = getpass.getuser()
+    swanlab_project_display = args.swanlab_project or f"lora-training-{current_user}"
+    print(f"SwanLab项目: {swanlab_project_display}")
+    if args.swanlab_workspace:
+        print(f"SwanLab工作区: {args.swanlab_workspace} (团队模式)")
+    else:
+        print("SwanLab工作区: 个人工作区")
+    
     print(f"运行模式: {'🏃 Dry Run (验证配置和数据，不训练)' if args.dry_run else '🚀 完整训练'}")
     print(f"框架: PyTorch Lightning + SwanLab")
     print(f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -861,6 +900,8 @@ def main():
         results = run_lightning_training(
             dataset_name=args.dataset,
             config=config,
+            swanlab_project=args.swanlab_project,
+            swanlab_workspace=args.swanlab_workspace,
             dry_run=args.dry_run
         )
         

@@ -1,0 +1,91 @@
+# LoRA Generator 配置文件
+# Lightning + SwanLab 版本
+
+# 模型配置
+model:
+  text_encoder_name: "all-MiniLM-L6-v2"  # Sentence-BERT模型
+  hidden_dim: 384
+  max_seq_len: 512
+  num_hyperconv_blocks: 3
+  output_dim: 384
+  freeze_text_encoder: true
+
+# 数据配置
+data:
+  checkpoint_dir: "runs/arc-challenge_lora_20250721_005053/checkpoints"
+  train_prompt_file: "Lora_Gen/data/train_prompts.jsonl"
+  val_prompt_file: "Lora_Gen/data/val_prompts.jsonl"
+  batch_size: 8
+  num_workers: 4
+  samples_per_prompt: 4
+  max_checkpoints: 50
+  cache_tokenized: true
+  train_ratio: 0.9
+
+# 训练配置
+training:
+  # Lightning配置
+  max_epochs: 100
+  max_steps: null
+  accumulate_grad_batches: 1
+  gradient_clip_val: 1.0
+  precision: "16-mixed"
+  
+  # 优化器配置
+  optimizer_type: "adamw"
+  learning_rate: 1e-4
+  weight_decay: 0.01
+  scheduler_type: "cosine"
+  warmup_steps: 1000
+  
+  # 损失配置
+  mse_weight: 1.0
+  l1_weight: 0.1
+  
+  # 早停配置
+  early_stopping_patience: 15
+  
+  # 验证配置
+  val_check_interval: 1.0
+  check_val_every_n_epoch: 1
+
+# Lightning配置
+lightning:
+  accelerator: "auto"
+  devices: "auto"
+  strategy: "auto"
+  enable_progress_bar: true
+  log_every_n_steps: 10
+  enable_checkpointing: true
+  deterministic: false
+
+# 日志配置
+logging:
+  # SwanLab配置
+  swanlab:
+    project: "lora-parameter-generator"
+    experiment_name: null  # 将自动生成
+    workspace: null  # 团队工作区（可选）
+    tags: ["lora", "hyperconv", "parameter-generation", "lightning"]
+  
+  # TensorBoard配置
+  tensorboard:
+    name: "lora_generator"
+    version: null
+
+# 路径配置（运行时自动设置）
+paths:
+  experiment_dir: null
+  checkpoints_dir: null
+  tensorboard_dir: null
+  swanlab_dir: null
+  results_dir: null
+  config_file: null
+
+# 实验配置（运行时自动设置）
+experiment:
+  name: null
+  created_at: null
+  description: "LoRA Parameter Generator training with HyperConv decoder"
+  framework: "lightning_swanlab"
+  tags: []

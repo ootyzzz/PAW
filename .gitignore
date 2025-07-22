@@ -110,8 +110,12 @@ dmypy.json
 # Machine Learning & AI
 # Models (keep structure but ignore large files)
 models/*
-models/**/*.bin
-models/**/*.safetensors
+!models/**/README.md
+!models/**/config.json
+!models/**/tokenizer.json
+!models/**/tokenizer_config.json
+!models/**/special_tokens_map.json
+!models/**/vocab.json
 models/**/*.bin
 models/**/*.safetensors
 models/**/*.pt
@@ -121,14 +125,17 @@ models/**/*.h5
 models/**/*.hdf5
 models/**/*.pb
 models/**/*.onnx
+models/**/*.pb
+models/**/*.onnx
 datasets/
 data/
 data_to_lora/
+*.ckpt
 
-# Raw datasets (keep structure but ignore large data files)
-# raw_datasets/**/*.jsonl
-# raw_datasets/**/*.json
-# !raw_datasets/**/README.md
+# Raw datasets (保留结构但忽略大文件)
+raw_datasets/**/*.jsonl
+raw_datasets/**/*.json
+!raw_datasets/**/README.md
 
 # Training artifacts
 checkpoints/**/*
@@ -183,7 +190,6 @@ config.local.yaml
 secrets.yaml
 
 # Experiment tracking
-## 实验追踪相关已由 checkpoints/**/*、logs/**/*、results/* 等覆盖，无需重复
 experiments/**
 runs/**
 

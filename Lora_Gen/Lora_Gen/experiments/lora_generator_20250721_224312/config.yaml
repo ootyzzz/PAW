@@ -1,0 +1,99 @@
+data:
+  batch_size: 32
+  cache_tokenized: true
+  checkpoint_dir: ../runs/arc-challenge_lora_20250721_005053/checkpoints
+  max_checkpoints: 51
+  num_workers: 0
+  samples_per_prompt: 4
+  train_prompt_file: data/arc-challenge/train_prompts.jsonl
+  train_ratio: 0.9
+  val_prompt_file: data/arc-challenge/val_prompts.jsonl
+experiment:
+  created_at: '2025-07-21T22:43:12.261611'
+  description: LoRA Parameter Generator training
+  framework: lightning_swanlab
+  name: lora_generator_20250721_224312
+  tags: []
+lightning:
+  accelerator: auto
+  accumulate_grad_batches: 1
+  check_val_every_n_epoch: 1
+  deterministic: false
+  devices: 1
+  enable_checkpointing: true
+  enable_model_summary: true
+  enable_progress_bar: true
+  fast_dev_run: false
+  gradient_clip_val: 1.0
+  limit_train_batches: 1.0
+  limit_val_batches: 1.0
+  log_every_n_steps: 50
+  precision: 16-mixed
+  strategy: auto
+logging:
+  format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+  level: INFO
+  save_logs: true
+  swanlab:
+    experiment_name: arc_challenge_generator
+    project: lora-generator
+    tags:
+    - hyperconv
+    - lora
+    - arc-challenge
+    workspace: ootyzzz
+  tensorboard:
+    name: lora_generator
+    save_dir: tensorboard_logs
+    version: v1.0
+model:
+  hidden_dim: 384
+  hidden_dims:
+  - 512
+  - 768
+  - 1024
+  input_dim: 384
+  max_seq_len: 512
+  max_tokens: 512
+  num_hyperconv_blocks: 3
+  output_dim: 384
+  text_encoder_name: sentence-transformers/all-MiniLM-L6-v2
+  token_dim: 384
+output:
+  ckpt_dir: checkpoints
+  logs_dir: logs
+  save_dir: outputs/arc_challenge
+paths:
+  checkpoints_dir: Lora_Gen\experiments\lora_generator_20250721_224312\checkpoints
+  config_file: Lora_Gen\experiments\lora_generator_20250721_224312\config.yaml
+  experiment_dir: Lora_Gen\experiments\lora_generator_20250721_224312
+  results_dir: Lora_Gen\experiments\lora_generator_20250721_224312\results
+  swanlab_dir: Lora_Gen\experiments\lora_generator_20250721_224312\swanlab_logs
+  tensorboard_dir: Lora_Gen\experiments\lora_generator_20250721_224312\tensorboard_logs
+swanlab:
+  experiment_name: arc_challenge_generator
+  project: lora-generator
+  tags:
+  - hyperconv
+  - lora
+  - arc-challenge
+  workspace: ootyzzz
+training:
+  accumulate_grad_batches: 1
+  check_val_every_n_epoch: 1
+  gradient_clip_val: 1.0
+  l1_weight: 0.1
+  learning_rate: 0.0001
+  max_epochs: 50
+  max_steps: -1
+  min_delta: 1e-4
+  monitor: val_loss
+  mse_weight: 1.0
+  optimizer_type: adamw
+  patience: 10
+  precision: 16-mixed
+  save_top_k: 3
+  scheduler_type: cosine
+  val_check_interval: 500
+  warmup_steps: 100
+  weight_decay: 1.0e-05
