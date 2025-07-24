@@ -49,15 +49,20 @@ def setup_callbacks(config: Dict[str, Any]) -> List[pl.Callback]:
     lr_monitor = LearningRateMonitor(logging_interval='step')
     callbacks.append(lr_monitor)
     
-    # 早停回调 - 验证准确率50步无提升则停止
-    early_stopping = EarlyStopping(
-        monitor='val_accuracy',
-        patience=50,
-        mode='max',
-        verbose=True,
-        min_delta=0.001  # 至少提升0.1%才算改善
-    )
-    callbacks.append(early_stopping)
+    # 早停回调 - 根据训练步数动态配置
+    max_steps = config.get('training', {}).get('max_steps', 125)
+    if max_steps <= 50:  # 快速测试模式 - 禁用早停
+        print("🔧 快速测试模式：禁用早停功能")
+        # 不添加早停回调
+    else:  # 正常训练模式
+        early_stopping = EarlyStopping(
+            monitor='val_accuracy',
+            patience=50,
+            mode='max',
+            verbose=True,
+            min_delta=0.001  # 至少提升0.1%才算改善
+        )
+        callbacks.append(early_stopping)
     
     # 注意：学习率调度器将在模型内部配置
     

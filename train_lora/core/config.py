@@ -136,8 +136,8 @@ def create_lightning_config(
         'learning_rate_stage2': learning_rate_stage2,
     })
     
-    # 现代化的输出目录结构 - 按 base model 分组
-    base_dir = Path("./runs") / model_name / experiment_name
+    # 现代化的输出目录结构 - 按数据集分组，再按模型分组
+    base_dir = Path("./runs") / dataset_name / model_name / experiment_name.split('_')[-1]  # 只使用时间戳部分
     config['paths'] = {
         'experiment_dir': str(base_dir),
         'checkpoints_dir': str(base_dir / "checkpoints"),

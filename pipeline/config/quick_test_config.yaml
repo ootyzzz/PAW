@@ -1,0 +1,42 @@
+# Quick Test Configuration for LoRA Transfer Pipeline
+# 专为快速测试设计，使用较少的训练步数和评估样本
+
+# 路径配置 (与正常配置相同)
+paths:
+  models_dir: '/root/autodl-tmp/models'
+  train_script: '/root/PAW/train_lora/train_cs_lora_lightning.py'
+  eval_script: '/root/PAW/eval/lightning_eval.py'
+  transfer_script: '/root/PAW/lora_adapter/scripts/transfer_lora_x.py'
+  runs_dir: '/root/PAW/train_lora/runs'
+  transferred_lora_dir: '/root/autodl-tmp/transferred_lora'
+  results_dir: '/root/PAW/results'
+
+# 训练配置 (快速测试参数)
+training:
+  default_batch_size: 4
+  default_max_steps: 20  # 减少训练步数
+  default_lr: '1e-5'
+  datasets:
+    - 'piqa'
+    - 'arc-challenge'
+    - 'arc-easy'
+
+# 评估配置 (快速测试参数)
+evaluation:
+  sample_ratio: 0.05  # 5%采样，更快评估
+  default_batch_size: 8
+
+# 迁移配置
+transfer:
+  similarity_threshold: 0.0001
+
+# 结果配置
+results:
+  csv_file: 'experiment_results.csv'
+  markdown_file: 'experiment_summary.md'
+
+# 推荐的快速测试模型组合
+recommended_models:
+  source: 'Qwen-Qwen2.5-0.5B'
+  target: 'Qwen_Qwen2.5-1.5B'
+  dataset: 'arc-challenge'

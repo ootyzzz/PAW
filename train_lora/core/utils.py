@@ -29,6 +29,10 @@ def configure_memory_optimizations():
 
 def setup_environment():
     """设置训练环境"""
+    # 修复MKL线程层冲突
+    os.environ['MKL_SERVICE_FORCE_INTEL'] = '1'
+    os.environ['MKL_THREADING_LAYER'] = 'GNU'
+    
     configure_memory_optimizations()
     
     # 屏蔽 Transformers 相关警告
