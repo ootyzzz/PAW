@@ -1,0 +1,85 @@
+# Lightning + SwanLab 版本配置
+# 基于原有training_config.yaml，简化并适配Lightning
+
+# 模型配置
+model:
+  name: "Qwen/Qwen2.5-0.5B"
+  path: "models/Qwen-Qwen2.5-0.5B"  # 本地路径（如果存在）
+  cache_dir: "./models"
+  torch_dtype: "auto"
+  trust_remote_code: true
+
+# 数据配置（保持原有路径）
+data:
+  # train_file 将在运行时动态设置为: data_to_lora/cs/{dataset}/{dataset}_train_formatted.jsonl
+  max_length: 512
+  shuffle: false  # 严格顺序加载
+  drop_last: false
+
+# LoRA配置（与原版相同）
+lora:
+  r: 16
+  alpha: 32  # lora_alpha
+  dropout: 0.1  # lora_dropout
+  target_modules: ["q_proj", "v_proj", "k_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+  bias: "none"
+  task_type: "CAUSAL_LM"
+
+# 训练配置（Lightning适配）
+training:
+  # 两阶段策略
+  max_steps: 125
+  stage1_steps: 75
+  stage2_steps: 50
+  
+  # 学习率
+  learning_rate_stage1: 1.0e-4
+  learning_rate_stage2: 1.0e-5
+  
+  # 优化器
+  optimizer: "adamw"
+  weight_decay: 0.01
+  betas: [0.9, 0.999]
+  eps: 1.0e-8
+  
+  # 其他
+  gradient_accumulation_steps: 1
+  
+# Lightning特定配置
+lightning:
+  # 精度
+  precision: "16-mixed"  # 自动混合精度（如果支持）
+  
+  # 设备
+  accelerator: "auto"  # auto/cpu/gpu/tpu
+  devices: "auto"      # auto/数字
+  strategy: "auto"     # auto/ddp/dp等
+  
+  # 检查点
+  save_top_k: -1       # 保存所有检查点
+  monitor: "train/loss"
+  mode: "min"
+  
+  # 日志
+  log_every_n_steps: 1
+  enable_progress_bar: true
+
+# SwanLab配置
+swanlab:
+  project: "lora-training"
+  # experiment_name 将在运行时动态生成
+  tags: ["lightning", "lora", "qwen2.5"]
+  
+# 实验管理
+experiment:
+  # 基础信息在运行时设置
+  framework: "lightning_swanlab"
+  version: "1.0"
+  
+# 目录配置（运行时动态生成）
+# paths:
+#   experiment_dir: "./runs/{experiment_name}"
+#   checkpoints_dir: "./runs/{experiment_name}/checkpoints"
+#   tensorboard_dir: "./runs/{experiment_name}/tensorboard_logs"
+#   swanlab_dir: "./runs/{experiment_name}/swanlab_logs"
+#   final_model_dir: "./runs/{experiment_name}/final_model"
