@@ -30,14 +30,14 @@ class ModelTrainer:
         model_name = ModelUtils.get_model_short_name(model_path)
         
         if self.verbose:
-            print(f"\n📚 开始训练 {model_name} + LoRA (数据集: {dataset})")
+            print(f"\nTraining {model_name} + LoRA (dataset: {dataset})")
         
-        # 检查是否已有训练结果
+        # Check for existing training results
         existing_path = self._check_existing_training(model_name, dataset)
         if existing_path:
             if self.verbose:
-                print(f"✅ 发现已有训练结果: {existing_path}")
-            return existing_path, None  # 返回路径和空的准确率(需要评估)
+                print(f"Found existing training results: {existing_path}")
+            return existing_path, None  # Return path and empty accuracy (needs evaluation)
         
         # 构建训练命令
         cmd = self._build_train_command(model_path, dataset)

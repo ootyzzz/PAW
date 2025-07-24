@@ -61,21 +61,23 @@ class TransferPipeline:
             source_model, target_model, dataset, self.timestamp
         )
         
-        print(f"\n🎯 开始LoRA迁移实验")
-        print(f"📋 实验ID: {self.experiment_id}")
-        print(f"🎲 源模型: {source_model}")
-        print(f"🎯 目标模型: {target_model}")
-        print(f"📚 数据集: {dataset}")
-        print("=" * 80)
+        print("\n" + "="*60)
+        print("LoRA Transfer Pipeline - Experiment Started")
+        print("="*60)
+        print(f"Experiment ID: {self.experiment_id}")
+        print(f"Source Model:  {ModelUtils.get_model_short_name(source_model)}")
+        print(f"Target Model:  {ModelUtils.get_model_short_name(target_model)}")
+        print(f"Dataset:       {dataset}")
+        print("="*60)
         
         # 检查是否有历史记录
         if not eval_only:
             existing = self.results.check_existing_experiment(source_model, target_model, dataset)
             if existing is not None:
-                print(f"⚠️ 发现相同实验记录 (时间: {existing['timestamp']})")
-                response = input("是否继续? (y/N): ").strip().lower()
+                print(f"\nWarning: Found existing experiment (timestamp: {existing['timestamp']})")
+                response = input("Continue anyway? (y/N): ").strip().lower()
                 if response not in ['y', 'yes']:
-                    print("🚫 实验取消")
+                    print("Experiment cancelled.")
                     return False
         
         # 初始化结果字典
@@ -128,7 +130,7 @@ class TransferPipeline:
         """执行管道步骤"""
         # 设置进度条
         total_steps = 6 if not eval_only else 4
-        progress_bar = tqdm(total=total_steps, desc="🚀 LoRA迁移管道", position=0, leave=True)
+        progress_bar = tqdm(total=total_steps, desc="Pipeline Progress", position=0, leave=True)
         
         try:
             if not eval_only:
@@ -158,7 +160,7 @@ class TransferPipeline:
                 print("⚠️ 源基础模型评估失败，但继续执行")
             
             # 最终保存完整结果
-            progress_bar.set_description("💾 保存最终结果")
+            progress_bar.set_description("Saving Results")
             self.results.save_results(results)
             progress_bar.close()
             
@@ -169,12 +171,12 @@ class TransferPipeline:
             if not eval_only:
                 self._print_optional_commands(source_model, target_model, dataset)
             
-            print("\n🎉 管道执行成功!")
+            print("\nPipeline completed successfully!")
             return True
             
         except Exception as e:
             progress_bar.close()
-            print(f"\n❌ 管道执行失败: {e}")
+            print(f"\nPipeline failed: {e}")
             # 保存部分结果
             self.results.save_partial_results(results, f"失败: {e}")
             return False
@@ -182,7 +184,9 @@ class TransferPipeline:
     def _step_train_source_lora(self, results: Dict[str, Any], source_model: str, 
                                dataset: str, progress_bar: tqdm) -> bool:
         """步骤1: 训练源LoRA"""
-        progress_bar.set_description("🎯 步骤1: 训练源LoRA")
+        print(f"\n{'='*60}")
+        print("STEP 1/6: TRAIN SOURCE LORA")
+        print("="*60)
         
         source_lora_path, source_lora_acc = self.trainer.train_model(source_model, dataset)
         if source_lora_path is None:
@@ -196,10 +200,12 @@ class TransferPipeline:
         progress_bar.update(1)
         return True
     
-    def _step_transfer_lora(self, results: Dict[str, Any], source_model: str, 
+    def _step_transfer_lora(self, results: Dict[str, Any], source_model: str,
                            target_model: str, dataset: str, progress_bar: tqdm) -> bool:
         """步骤2: 迁移LoRA"""
-        progress_bar.set_description("🔄 步骤2: 迁移LoRA")
+        print(f"\n{'='*60}")
+        print("STEP 2/6: TRANSFER LORA")
+        print("="*60)
         
         transferred_lora_path = self.transfer.transfer_lora(
             results['source_lora_path'], source_model, target_model, dataset
@@ -215,7 +221,9 @@ class TransferPipeline:
     def _step_eval_target_base(self, results: Dict[str, Any], target_model: str, 
                               dataset: str, progress_bar: tqdm) -> bool:
         """步骤3: 评估目标基础模型"""
-        progress_bar.set_description("📊 步骤3: 评估目标基础模型")
+        print(f"\n{'='*60}")
+        print("STEP 3/6: EVAL TARGET BASE MODEL")
+        print("="*60)
         
         target_acc = self.evaluator.evaluate_base_model(target_model, dataset)
         results['target_acc'] = target_acc
@@ -226,7 +234,9 @@ class TransferPipeline:
     def _step_eval_transferred_lora(self, results: Dict[str, Any], target_model: str, 
                                    dataset: str, progress_bar: tqdm) -> bool:
         """步骤4: 评估迁移LoRA"""
-        progress_bar.set_description("📊 步骤4: 评估迁移LoRA")
+        print(f"\n{'='*60}")
+        print("STEP 4/6: EVAL TRANSFERRED LORA")
+        print("="*60)
         
         transferred_acc = self.evaluator.evaluate_lora_model(
             results['transferred_lora_path'], target_model, dataset
@@ -239,7 +249,9 @@ class TransferPipeline:
     def _step_train_target_lora(self, results: Dict[str, Any], target_model: str, 
                                dataset: str, progress_bar: tqdm) -> bool:
         """步骤5: 训练目标LoRA"""
-        progress_bar.set_description("🎯 步骤5: 训练目标LoRA")
+        print(f"\n{'='*60}")
+        print("STEP 5/6: TRAIN TARGET LORA")
+        print("="*60)
         
         target_lora_path, target_lora_acc = self.trainer.train_model(target_model, dataset)
         if target_lora_path is None:
@@ -256,7 +268,9 @@ class TransferPipeline:
     def _step_eval_source_base(self, results: Dict[str, Any], source_model: str, 
                               dataset: str, progress_bar: tqdm) -> bool:
         """步骤6: 评估源基础模型"""
-        progress_bar.set_description("📊 步骤6: 评估源基础模型")
+        print(f"\n{'='*60}")
+        print("STEP 6/6: EVAL SOURCE BASE MODEL")
+        print("="*60)
         
         source_acc = self.evaluator.evaluate_base_model(source_model, dataset)
         results['source_acc'] = source_acc
@@ -265,63 +279,65 @@ class TransferPipeline:
         return source_acc is not None
     
     def _print_summary(self, results: Dict[str, Any]):
-        """打印实验总结"""
-        print(f"\n🎉 实验完成! 总结如下:")
+        """Print experiment summary"""
+        print(f"\n{'='*60}")
+        print("EXPERIMENT SUMMARY")
         print("=" * 60)
         
         source_name = ModelUtils.get_model_short_name(results['source_model'])
         target_name = ModelUtils.get_model_short_name(results['target_model'])
         
-        # 处理可能为None的值
+        # Handle potentially None values
         source_acc = results.get('source_acc', 0) or 0
         target_acc = results.get('target_acc', 0) or 0
         source_lora_acc = results.get('source_lora_acc')
         target_lora_acc = results.get('target_lora_acc')
         transferred_acc = results.get('transferred_acc')
         
-        print(f"📊 {source_name} (源模型): {source_acc:.4f}")
+        print(f"Source Model ({source_name}):     {source_acc:.4f}")
         if source_lora_acc is not None:
             improvement = (source_lora_acc - source_acc) * 100
-            print(f"📊 {source_name} + LoRA: {source_lora_acc:.4f} (+{improvement:.2f}%)")
+            print(f"Source + LoRA:              {source_lora_acc:.4f} (+{improvement:.2f}%)")
         
-        print(f"📊 {target_name} (目标模型): {target_acc:.4f}")
+        print(f"Target Model ({target_name}):     {target_acc:.4f}")
         
         if transferred_acc is not None:
             improvement = (transferred_acc - target_acc) * 100
-            print(f"📊 {target_name} + 迁移LoRA: {transferred_acc:.4f} (+{improvement:.2f}%)")
+            print(f"Target + Transferred LoRA:  {transferred_acc:.4f} (+{improvement:.2f}%)")
         
         if target_lora_acc is not None:
             improvement = (target_lora_acc - target_acc) * 100
-            print(f"📊 {target_name} + 直训LoRA: {target_lora_acc:.4f} (+{improvement:.2f}%)")
+            print(f"Target + Direct LoRA:       {target_lora_acc:.4f} (+{improvement:.2f}%)")
         
         print("=" * 60)
-        print(f"📁 详细结果: results/experiment_summary.md")
+        print(f"Detailed results: results/experiment_summary.md")
     
     def _print_optional_commands(self, source_model: str, target_model: str, dataset: str):
-        """打印可选的目标模型LoRA训练命令"""
+        """Print optional target model LoRA training commands"""
         target_name = ModelUtils.get_model_short_name(target_model)
         
-        print(f"\n💡 可选：训练目标模型 {target_name} 的LoRA进行对比")
-        print("=" * 60)
+        print(f"\n{'-'*60}")
+        print(f"OPTIONAL: Train {target_name} LoRA for Comparison")
+        print("-" * 60)
         
-        # 训练命令
+        # Training command
         train_cmd = f"python {self.config.get('paths.train_script')} " \
                    f"--dataset {dataset} " \
                    f"--base_model {target_model} " \
                    f"--bs {self.config.get('training.default_batch_size')} " \
                    f"--max_steps {self.config.get('training.default_max_steps')}"
         
-        print(f"🎯 训练 {target_name} LoRA:")
-        print(f"   {train_cmd}")
+        print(f"Train {target_name} LoRA:")
+        print(f"  {train_cmd}")
         
-        # 评估命令 
+        # Evaluation command 
         eval_cmd = f"python {self.config.get('paths.eval_script')} " \
-                  f"--models_list [训练后的模型路径] " \
+                  f"--models_list [trained_model_path] " \
                   f"--dataset {dataset} " \
                   f"--sample_ratio {self.config.get('evaluation.sample_ratio')} " \
                   f"--base_model {target_model}"
         
-        print(f"\n📊 评估 {target_name} LoRA:")
-        print(f"   {eval_cmd}")
+        print(f"\nEvaluate {target_name} LoRA:")
+        print(f"  {eval_cmd}")
         print()
-        print("💡 训练完成后可以对比 '目标模型+LoRA' vs '目标模型+迁移LoRA' 的性能差异")
+        print("NOTE: After training, you can compare 'Target+LoRA' vs 'Target+Transferred LoRA' performance")

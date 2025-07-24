@@ -134,47 +134,11 @@ class PipelineConfig:
             yaml.dump(self.config, f, default_flow_style=False, allow_unicode=True)
 
 
-# 快速测试配置类
+# Quick test configuration class
 class QuickTestConfig(PipelineConfig):
-    """快速测试专用配置"""
+    """Quick test configuration"""
     
     def __init__(self):
-        # 不调用父类的__init__，直接设置快速测试配置
-        self.config_path = None
-        self.config = self._create_quick_test_config()
-    
-    def _create_quick_test_config(self) -> Dict[str, Any]:
-        """创建快速测试配置"""
-        return {
-            'paths': {
-                'models_dir': '/root/autodl-tmp/models',
-                'train_script': '/root/PAW/train_lora/train_cs_lora_lightning.py',
-                'eval_script': '/root/PAW/eval/lightning_eval.py',
-                'transfer_script': '/root/PAW/lora_adapter/scripts/transfer_lora_x.py',
-                'runs_dir': '/root/PAW/train_lora/runs',
-                'transferred_lora_dir': '/root/autodl-tmp/transferred_lora',
-                'results_dir': '/root/PAW/results'
-            },
-            'training': {
-                'default_batch_size': 4,
-                'default_max_steps': 20,  # 快速测试用更少步数
-                'default_lr': '1e-5',
-                'datasets': ['piqa', 'arc-challenge', 'arc-easy']
-            },
-            'evaluation': {
-                'sample_ratio': 0.05,  # 5%采样，快速评估
-                'default_batch_size': 8
-            },
-            'transfer': {
-                'similarity_threshold': 0.0001
-            },
-            'results': {
-                'csv_file': 'experiment_results.csv',
-                'markdown_file': 'experiment_summary.md'
-            },
-            'recommended_models': {
-                'source': 'Qwen-Qwen2.5-0.5B',
-                'target': 'Qwen_Qwen2.5-1.5B', 
-                'dataset': 'piqa'
-            }
-        }
+        # Use quick_test_config.yaml instead of hardcoded values
+        quick_config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'quick_test_config.yaml')
+        super().__init__(quick_config_path)

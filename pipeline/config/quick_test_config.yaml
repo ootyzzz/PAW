@@ -17,9 +17,9 @@ training:
   default_max_steps: 20  # 减少训练步数
   default_lr: '1e-5'
   datasets:
-    - 'piqa'
     - 'arc-challenge'
     - 'arc-easy'
+    - 'piqa'
 
 # 评估配置 (快速测试参数)
 evaluation:

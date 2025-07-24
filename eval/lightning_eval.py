@@ -55,17 +55,25 @@ from tqdm import tqdm
 
 def get_test_file_path(dataset_name: str) -> str:
     """获取测试文件路径"""
-    data_dir = f"data_to_lora/cs/{dataset_name}"
-    test_file = f"{data_dir}/{dataset_name}_test_formatted.jsonl"
-    validation_file = f"{data_dir}/{dataset_name}_validation_formatted.jsonl"
+    # 尝试多个可能的数据目录路径
+    possible_paths = [
+        f"data_to_lora/cs/{dataset_name}",  # 从PAW根目录运行
+        f"../data_to_lora/cs/{dataset_name}",  # 从pipeline目录运行
+        f"/root/PAW/data_to_lora/cs/{dataset_name}",  # 绝对路径
+    ]
     
-    if os.path.exists(test_file):
-        return test_file
-    elif os.path.exists(validation_file):
-        print(f"📝 使用validation文件作为test: {validation_file}")
-        return validation_file
-    else:
-        raise FileNotFoundError(f"数据集 {dataset_name} 找不到test或validation文件")
+    for data_dir in possible_paths:
+        test_file = f"{data_dir}/{dataset_name}_test_formatted.jsonl"
+        validation_file = f"{data_dir}/{dataset_name}_validation_formatted.jsonl"
+        
+        if os.path.exists(test_file):
+            return test_file
+        elif os.path.exists(validation_file):
+            print(f"📝 使用validation文件作为test: {validation_file}")
+            return validation_file
+    
+    # 如果都找不到，给出详细的错误信息
+    raise FileNotFoundError(f"数据集 {dataset_name} 找不到test或validation文件。尝试过的路径: {possible_paths}")
 
 
 class SimpleDataset(Dataset):

@@ -29,19 +29,19 @@ class ModelEvaluator:
         Returns:
             准确率 或 None 如果失败
         """
-        model_type = "LoRA" if is_lora else "基础模型"
+        model_type = "LoRA" if is_lora else "Base Model"
         model_name = ModelUtils.get_model_short_name(base_model)
         
         if self.verbose:
-            print(f"\n📊 开始评估 {model_name} {model_type}")
+            print(f"\nEvaluating {model_name} {model_type}...")
         
-        # 构建评估命令
+        # Build evaluation command
         cmd = self._build_eval_command(model_path, base_model, dataset, is_lora)
         
-        # 执行评估
+        # Execute evaluation
         output = self.runner.run_command(
             cmd,
-            f"评估 {model_name} {model_type}"
+            f"Evaluate {model_name} {model_type}"
         )
         
         if output is None:

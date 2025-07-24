@@ -45,14 +45,14 @@ class ResultsManager:
                                           self.config.get('results.csv_file'))
                     md_path = os.path.join(self.config.get('paths.results_dir'), 
                                          self.config.get('results.markdown_file'))
-                    print(f"✅ 结果已保存到:")
-                    print(f"   📊 CSV: {csv_path}")
-                    print(f"   📝 Markdown: {md_path}")
+                    print(f"Results saved to:")
+                    print(f"  CSV: {csv_path}")
+                    print(f"  Markdown: {md_path}")
             except Exception as md_error:
                 if self.verbose:
-                    print(f"⚠️ 更新Markdown失败: {md_error}")
+                    print(f"WARNING: Failed to update Markdown: {md_error}")
         else:
-            # 备用保存
+            # Fallback save
             self._backup_save(clean_data)
     
     def _save_to_csv(self, clean_data: Dict[str, Any]) -> bool:
@@ -101,8 +101,8 @@ class ResultsManager:
                     df_combined = pd.concat([df_existing, df_new], ignore_index=True)
                 except Exception as e:
                     if self.verbose:
-                        print(f"⚠️ 读取现有结果时出错: {e}")
-                        print("💡 将创建新的结果文件")
+                        print(f"WARNING: Error reading existing results: {e}")
+                        print("NOTE: Will create new results file")
                     df_combined = df_new
             else:
                 df_combined = df_new
@@ -255,11 +255,11 @@ class ResultsManager:
                 (df['dataset'] == str(dataset))
             ]
             if not existing.empty:
-                return existing.iloc[-1]  # 返回最新的记录
+                return existing.iloc[-1]  # Return the latest record
         except Exception as e:
             if self.verbose:
-                print(f"⚠️ 读取历史记录时出错: {e}")
-                print(f"💡 将重新创建结果文件")
+                print(f"WARNING: Error reading history: {e}")
+                print(f"NOTE: Will recreate results file")
         
         return None
     
@@ -287,17 +287,17 @@ class ResultsManager:
                 print(f"⚠️ 生成Markdown失败: {e}")
     
     def _generate_markdown_content(self, df: pd.DataFrame) -> str:
-        """生成Markdown内容"""
-        content = f"""# 📊 LoRA迁移实验结果汇总
+        """Generate Markdown content"""
+        content = f"""# LoRA Transfer Experiment Results Summary
 
-> 自动生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  
-> 管理脚本: transfer_pipeline.py  
-> 总实验数: {len(df)}
+> Auto-generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  
+> Management script: transfer_pipeline.py  
+> Total experiments: {len(df)}
 
-## 实验概述
+## Experiment Overview
 
-本文档记录所有LoRA训练和迁移实验的结果，包括：
-- 基础模型性能
+This document records all LoRA training and transfer experiment results, including:
+- Base model performance
 - LoRA微调后性能  
 - 跨模型LoRA迁移性能
 - 详细的配置信息

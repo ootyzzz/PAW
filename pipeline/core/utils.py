@@ -128,15 +128,15 @@ class CommandRunner:
             print(f"   {line}")
             return
         
-        # 处理进度条 - 只显示最新的进度
+        # Handle progress bars - only show latest progress
         if re.search(r'\d+%\|[█▉▊▋▌▍▎▏ ]*\|', line) or ('it/s' in line and ('Epoch' in line or 'step' in line)):
             if current_progress_line:
-                # 清除之前的进度行
+                # Clear previous progress line
                 print('\r' + ' ' * len(current_progress_line) + '\r', end='', flush=True)
-            print(f"\r📊 {line}", end='', flush=True)
+            print(f"\r{line}", end='', flush=True)
             current_progress_line = line
         else:
-            # 如果有之前的进度行，先换行
+            # If there was a previous progress line, add newline first
             if current_progress_line:
                 print()  # 换行
                 current_progress_line = None
@@ -147,11 +147,11 @@ class CommandRunner:
                 'generation flags are not valid', 'cache_implementation',
                 'Using 16bit Automatic Mixed Precision', 'GPU available:', 'TPU available:'
             ]) and line.strip():
-                # 显示有用的信息
+                # Show useful information
                 if any(useful in line for useful in [
-                    '✅', '📊', '🎯', '📁', '⚠️', '❌', 
                     'accuracy', 'loss', 'test_result', 'final_model',
-                    'Lightning训练', '模型加载', '可训练参数'
+                    'Lightning训练', '模型加载', '可训练参数', 'Training',
+                    'Model loaded', 'Trainable parameters', 'ERROR', 'WARNING'
                 ]):
                     print(f"   {line}")
 
@@ -223,51 +223,51 @@ class OutputParser:
     def parse_evaluation_accuracy(output: str) -> Optional[float]:
         """解析评估输出获取准确率"""
         try:
-            # 方法1: 查找表格格式的accuracy
+            # Method 1: Look for table format accuracy
             table_pattern = r"\|\s*test/accuracy\s*\|\s*([\d.]+)\s*\|"
             match = re.search(table_pattern, output, re.IGNORECASE)
             if match:
                 accuracy = float(match.group(1))
-                print(f"   📊 从表格提取准确率: {accuracy:.4f}")
+                print(f"   Extracted accuracy from table: {accuracy:.4f}")
                 return accuracy
             
-            # 方法2: 查找字典格式的accuracy
+            # Method 2: Look for dictionary format accuracy
             dict_pattern = r"['\"]?test/accuracy['\"]?\s*[:\|]\s*([\d.]+)"
             match = re.search(dict_pattern, output, re.IGNORECASE)
             if match:
                 accuracy = float(match.group(1))
-                print(f"   📊 从字典提取准确率: {accuracy:.4f}")
+                print(f"   Extracted accuracy from dict: {accuracy:.4f}")
                 return accuracy
             
-            # 方法3: 查找一般accuracy信息
+            # Method 3: Look for general accuracy information
             general_pattern = r"accuracy['\"]?\s*[:\|=]\s*([\d.]+)"
             match = re.search(general_pattern, output, re.IGNORECASE)
             if match:
                 accuracy = float(match.group(1))
-                print(f"   📊 从一般格式提取准确率: {accuracy:.4f}")
+                print(f"   Extracted accuracy from general format: {accuracy:.4f}")
                 return accuracy
             
-            # 方法4: 逐行分析
+            # Method 4: Line-by-line analysis
             lines = output.split('\n')
             for line in lines:
                 line = line.strip()
                 if 'accuracy' in line.lower() and any(char.isdigit() for char in line):
-                    # 提取行中的所有数字
+                    # Extract all numbers from the line
                     numbers = re.findall(r'\d+\.?\d*', line)
                     for num_str in numbers:
                         try:
                             num = float(num_str)
-                            # 准确率通常在0-1之间
+                            # Accuracy usually between 0-1
                             if 0 <= num <= 1:
-                                print(f"   📊 从行提取准确率: {num:.4f} (行: {line[:50]}...)")
+                                print(f"   Extracted accuracy from line: {num:.4f} (line: {line[:50]}...)")
                                 return num
                         except:
                             continue
             
-            print(f"   ⚠️ 未能提取准确率，返回None")
-            # 调试：显示评估输出的关键部分
-            print("   🔍 评估输出关键行:")
-            for line in output.split('\n')[-20:]:  # 显示最后20行
+            print(f"   WARNING: Could not extract accuracy, returning None")
+            # Debug: Show key parts of evaluation output
+            print("   DEBUG: Key evaluation output lines:")
+            for line in output.split('\n')[-20:]:  # Show last 20 lines
                 if any(keyword in line.lower() for keyword in ['accuracy', 'test', 'loss']):
                     print(f"     {line.strip()}")
             
