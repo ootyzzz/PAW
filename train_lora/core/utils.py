@@ -6,6 +6,8 @@
 
 import os
 import torch
+import warnings
+import logging
 
 
 def configure_memory_optimizations():
@@ -28,6 +30,20 @@ def configure_memory_optimizations():
 def setup_environment():
     """设置训练环境"""
     configure_memory_optimizations()
+    
+    # 屏蔽 Transformers 相关警告
+    warnings.filterwarnings("ignore", message=".*cache_implementation.*")
+    warnings.filterwarnings("ignore", message=".*generation flags are not valid.*")
+    
+    # 设置 Transformers 日志级别为 ERROR 以减少信息输出
+    os.environ['TRANSFORMERS_VERBOSITY'] = 'error'
+    
+    # 设置 HuggingFace transformers 的日志级别
+    try:
+        from transformers import logging as hf_logging
+        hf_logging.set_verbosity_error()
+    except ImportError:
+        pass
     
     # 设置随机种子以确保可重现性
     torch.manual_seed(42)

@@ -8,6 +8,7 @@ import torch
 import torch.nn.functional as F
 import pytorch_lightning as pl
 import swanlab
+import warnings
 from typing import Dict, Any
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -266,11 +267,14 @@ class LoRALightningModule(pl.LightningModule):
                             "repetition_penalty": 1.0,
                         })
                     
-                    # 生成答案
-                    outputs = self.model.generate(
-                        **inputs,
-                        **generation_kwargs
-                    )
+                    # 生成答案 (使用警告抑制)
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings("ignore", message=".*cache_implementation.*")
+                        warnings.filterwarnings("ignore", message=".*generation flags are not valid.*")
+                        outputs = self.model.generate(
+                            **inputs,
+                            **generation_kwargs
+                        )
                     
                     # 解码生成的答案
                     generated_text = self.tokenizer.decode(outputs[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True)

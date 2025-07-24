@@ -47,8 +47,14 @@ import os
 import sys
 import yaml
 import argparse
+import warnings
 from datetime import datetime
 from pathlib import Path
+
+# 屏蔽 Transformers 警告
+warnings.filterwarnings("ignore", message=".*cache_implementation.*")
+warnings.filterwarnings("ignore", message=".*generation flags are not valid.*")
+os.environ['TRANSFORMERS_VERBOSITY'] = 'error'
 
 # 添加项目根目录到路径
 project_root = os.path.dirname(os.path.abspath(__file__))
