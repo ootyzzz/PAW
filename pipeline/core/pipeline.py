@@ -130,7 +130,7 @@ class TransferPipeline:
         """执行管道步骤"""
         # 设置进度条
         total_steps = 6 if not eval_only else 4
-        progress_bar = tqdm(total=total_steps, desc="Pipeline Progress", position=0, leave=True)
+        progress_bar = tqdm(total=total_steps, desc="Pipeline Progress", position=1, leave=True, ncols=80)
         
         try:
             if not eval_only:

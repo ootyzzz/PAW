@@ -86,7 +86,7 @@ class ModelTrainer:
         """构建训练命令"""
         train_script = os.path.basename(self.config.get('paths.train_script'))
         
-        cmd = f"python {train_script} " \
+        cmd = f"TQDM_DISABLE=1 python {train_script} " \
               f"--dataset {dataset} " \
               f"--base_model {model_path} " \
               f"--bs {self.config.get('training.default_batch_size')} " \
