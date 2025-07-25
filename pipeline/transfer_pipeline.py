@@ -18,6 +18,13 @@ python transfer_pipeline.py \
   --target_model Qwen_Qwen2.5-1.5B \
   --dataset arc-challenge
 
+python transfer_pipeline.py \
+  --source_model gemma-2-2b-it \
+  --target_model Qwen_Qwen2.5-1.5B \
+  --dataset arc-challenge
+
+python pipeline/experiments/run_single_experiment.py --base_model /root/autodl-tmp/models/Qwen_Qwen2.5-1.5B --target_model /root/autodl-tmp/models/Llama-3.2-3B-Instruct --dataset arc-challenge --eval_only
+    
 快速测试:
 python transfer_pipeline.py --quick_test
 """
@@ -49,6 +56,9 @@ def main():
         description="LoRA训练和迁移自动化管道",
         epilog="""
 使用示例:
+  # 使用配置文件默认值
+  python transfer_pipeline.py
+  
   # 快速测试 (0.5B→1.5B, 20步训练, 5%评估)
   python transfer_pipeline.py --quick_test
   
@@ -57,12 +67,12 @@ def main():
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--source_model", type=str, 
-                       help="源模型路径或名称")
-    parser.add_argument("--target_model", type=str, 
-                       help="目标模型路径或名称")
-    parser.add_argument("--dataset", type=str, 
-                       help="数据集名称")
+    parser.add_argument("--source_model", type=str, default=None,
+                       help="源模型路径或名称 (默认使用配置文件)")
+    parser.add_argument("--target_model", type=str, default=None,
+                       help="目标模型路径或名称 (默认使用配置文件)")
+    parser.add_argument("--dataset", type=str, default=None,
+                       help="数据集名称 (默认使用配置文件)")
     parser.add_argument("--config", type=str, 
                        default=os.path.join(os.path.dirname(__file__), "config", "pipeline_config.yaml"),
                        help="配置文件路径")
@@ -94,15 +104,34 @@ def main():
         print(f"Training Steps: 20, Evaluation Ratio: 5%")
         print("")
     else:
-        # Validate required parameters
-        if not all([args.source_model, args.target_model, args.dataset]):
-            print("ERROR: Need to specify --source_model, --target_model, --dataset")
-            print("NOTE: Or use --quick_test for automatic configuration")
-            parser.print_help()
-            return False
-        
         # Create pipeline instance (using normal configuration)
         pipeline = TransferPipeline(args.config)
+        
+        # Use default values from config if not provided
+        if not args.source_model:
+            args.source_model = pipeline.config.get('default_experiment.source_model')
+        if not args.target_model:
+            args.target_model = pipeline.config.get('default_experiment.target_model')
+        if not args.dataset:
+            args.dataset = pipeline.config.get('default_experiment.dataset')
+        if not args.eval_only:
+            args.eval_only = pipeline.config.get('default_experiment.eval_only', False)
+        
+        # Validate that we have all required parameters
+        if not all([args.source_model, args.target_model, args.dataset]):
+            print("ERROR: Missing required parameters. Check configuration file or provide:")
+            print("  --source_model [model_name]")
+            print("  --target_model [model_name]") 
+            print("  --dataset [dataset_name]")
+            print("NOTE: Or use --quick_test for automatic configuration")
+            return False
+        
+        print(f"Using Configuration: {args.config}")
+        print(f"Source Model: {args.source_model}")
+        print(f"Target Model: {args.target_model}")
+        print(f"Dataset: {args.dataset}")
+        print(f"Eval Only: {args.eval_only}")
+        print("")
     
     # 处理模型路径
     if not args.source_model.startswith('/'):

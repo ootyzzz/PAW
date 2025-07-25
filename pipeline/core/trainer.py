@@ -36,8 +36,10 @@ class ModelTrainer:
         existing_path = self._check_existing_training(model_name, dataset)
         if existing_path:
             if self.verbose:
-                print(f"Found existing training results: {existing_path}")
-            return existing_path, None, f"发现已有训练结果: {existing_path}"  # Return path and empty accuracy (needs evaluation)
+                print(f"状态: 发现已有训练结果: {existing_path}")
+            # 尝试从已有结果中读取准确率
+            existing_accuracy = self._read_accuracy_from_existing(existing_path)
+            return existing_path, existing_accuracy, f"发现已有训练结果: {existing_path}"
         
         # 构建训练命令
         cmd = self._build_train_command(model_path, dataset)
@@ -83,6 +85,42 @@ class ModelTrainer:
         if os.path.exists(final_model_path):
             return final_model_path
         
+        return None
+    
+    def _read_accuracy_from_existing(self, model_path: str) -> Optional[float]:
+        """从已有训练结果中读取准确率"""
+        import json
+        import os
+        
+        # 查找可能包含准确率的文件
+        result_files = [
+            os.path.join(os.path.dirname(model_path), "trainer_state.json"),
+            os.path.join(os.path.dirname(model_path), "training_results.json"),
+            os.path.join(os.path.dirname(model_path), "eval_results.json"),
+        ]
+        
+        for result_file in result_files:
+            if os.path.exists(result_file):
+                try:
+                    with open(result_file, 'r') as f:
+                        data = json.load(f)
+                    
+                    # 查找准确率的各种可能键名
+                    accuracy_keys = [
+                        'test/accuracy', 'test_accuracy', 'eval_accuracy', 
+                        'accuracy', 'final_accuracy', 'best_accuracy'
+                    ]
+                    
+                    for key in accuracy_keys:
+                        if key in data:
+                            accuracy = data[key]
+                            if isinstance(accuracy, (int, float)) and 0 <= accuracy <= 1:
+                                return float(accuracy)
+                            
+                except (json.JSONDecodeError, KeyError, ValueError):
+                    continue
+        
+        # 如果没有找到，返回None，但至少我们尝试过了
         return None
     
     def _build_train_command(self, model_path: str, dataset: str) -> str:

@@ -51,9 +51,13 @@ class ResultsManager:
         
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
+        # 处理None值的格式化
+        accuracy_str = f"{accuracy:.4f}" if accuracy is not None else "0.0000"
+        improvement_str = f"{improvement_pct:.2f}" if improvement_pct is not None else "0.00"
+        
         row_data = [
-            base_model, lora_source, dataset, f"{accuracy:.4f}", 
-            f"{improvement_pct:.2f}", config_details, run_file, timestamp, note
+            base_model, lora_source, dataset, accuracy_str, 
+            improvement_str, config_details, run_file, timestamp, note
         ]
         
         csv_path = self._get_csv_path()
@@ -62,7 +66,8 @@ class ResultsManager:
             writer.writerow(row_data)
         
         if self.verbose:
-            print(f"💾 结果已添加: {base_model} - {lora_source} - {accuracy:.4f}")
+            accuracy_display = accuracy if accuracy is not None else 0.0
+            print(f"💾 结果已添加: {base_model} - {lora_source} - {accuracy_display:.4f}")
     
     def save_pipeline_results(self, experiment_data: Dict[str, Any]):
         """保存完整管道实验结果"""
@@ -97,14 +102,15 @@ class ResultsManager:
         
         # 2. 源LoRA模型
         if 'source_lora_acc' in experiment_data and experiment_data['source_lora_acc'] is not None:
-            source_base_acc = experiment_data.get('source_acc', 0)
-            improvement = ((experiment_data['source_lora_acc'] - source_base_acc) / source_base_acc * 100) if source_base_acc > 0 else 0
+            source_base_acc = experiment_data.get('source_acc', 0) or 0
+            source_lora_acc = experiment_data['source_lora_acc'] or 0
+            improvement = ((source_lora_acc - source_base_acc) / source_base_acc * 100) if source_base_acc > 0 else 0
             
             self.add_result(
                 base_model=source_model,
                 lora_source="lora",
                 dataset=dataset,
-                accuracy=experiment_data['source_lora_acc'],
+                accuracy=source_lora_acc,
                 improvement_pct=improvement,
                 config_details=f"LoRA: {source_model}, {training_config}",
                 run_file=experiment_data.get('source_lora_path', ''),
@@ -128,8 +134,9 @@ class ResultsManager:
         
         # 4. 迁移LoRA模型
         if 'transferred_acc' in experiment_data and experiment_data['transferred_acc'] is not None:
-            target_base_acc = experiment_data.get('target_acc', 0)
-            improvement = ((experiment_data['transferred_acc'] - target_base_acc) / target_base_acc * 100) if target_base_acc > 0 else 0
+            target_base_acc = experiment_data.get('target_acc', 0) or 0
+            transferred_acc = experiment_data['transferred_acc'] or 0
+            improvement = ((transferred_acc - target_base_acc) / target_base_acc * 100) if target_base_acc > 0 else 0
             
             # 获取迁移配置
             similarity_threshold = self.config.get('transfer.similarity_threshold', 0.0001)
@@ -139,7 +146,7 @@ class ResultsManager:
                 base_model=target_model,
                 lora_source="adpt",
                 dataset=dataset,
-                accuracy=experiment_data['transferred_acc'],
+                accuracy=transferred_acc,
                 improvement_pct=improvement,
                 config_details=transfer_config,
                 run_file=experiment_data.get('transferred_lora_path', ''),
@@ -149,14 +156,15 @@ class ResultsManager:
         
         # 5. 目标LoRA模型
         if 'target_lora_acc' in experiment_data and experiment_data['target_lora_acc'] is not None:
-            target_base_acc = experiment_data.get('target_acc', 0)
-            improvement = ((experiment_data['target_lora_acc'] - target_base_acc) / target_base_acc * 100) if target_base_acc > 0 else 0
+            target_base_acc = experiment_data.get('target_acc', 0) or 0
+            target_lora_acc = experiment_data['target_lora_acc'] or 0
+            improvement = ((target_lora_acc - target_base_acc) / target_base_acc * 100) if target_base_acc > 0 else 0
             
             self.add_result(
                 base_model=target_model,
                 lora_source="lora",
                 dataset=dataset,
-                accuracy=experiment_data['target_lora_acc'],
+                accuracy=target_lora_acc,
                 improvement_pct=improvement,
                 config_details=f"LoRA: {target_model}, {training_config}",
                 run_file=experiment_data.get('target_lora_path', ''),
@@ -204,13 +212,14 @@ class ResultsManager:
             if "源LoRA训练完成" in message and 'source_lora_acc' in results:
                 key = f"{source_model}_lora_{dataset}_{experiment_id}"
                 if key not in self._saved_keys:
-                    source_base_acc = results.get('source_acc', 0)
-                    improvement = ((results['source_lora_acc'] - source_base_acc) / source_base_acc * 100) if source_base_acc > 0 else 0
+                    source_base_acc = results.get('source_acc', 0) or 0
+                    source_lora_acc = results.get('source_lora_acc', 0) or 0
+                    improvement = ((source_lora_acc - source_base_acc) / source_base_acc * 100) if source_base_acc > 0 else 0
                     self.add_result(
                         base_model=source_model,
                         lora_source="lora",
                         dataset=dataset,
-                        accuracy=results['source_lora_acc'],
+                        accuracy=source_lora_acc,
                         improvement_pct=improvement,
                         config_details=f"LoRA: {source_model}, {training_config}",
                         run_file=results.get('source_lora_path', ''),
@@ -236,15 +245,16 @@ class ResultsManager:
             elif "迁移LoRA评估完成" in message and 'transferred_acc' in results:
                 key = f"{target_model}_adpt_{dataset}_{experiment_id}"
                 if key not in self._saved_keys:
-                    target_base_acc = results.get('target_acc', 0)
-                    improvement = ((results['transferred_acc'] - target_base_acc) / target_base_acc * 100) if target_base_acc > 0 else 0
+                    target_base_acc = results.get('target_acc', 0) or 0
+                    transferred_acc = results.get('transferred_acc', 0) or 0
+                    improvement = ((transferred_acc - target_base_acc) / target_base_acc * 100) if target_base_acc > 0 else 0
                     similarity_threshold = self.config.get('transfer.similarity_threshold', 0.0001)
                     transfer_config = f"LoRA source: {source_model}, {training_config}; Adapter: 迁移, sim={similarity_threshold}"
                     self.add_result(
                         base_model=target_model,
                         lora_source="adpt",
                         dataset=dataset,
-                        accuracy=results['transferred_acc'],
+                        accuracy=transferred_acc,
                         improvement_pct=improvement,
                         config_details=transfer_config,
                         run_file=results.get('transferred_lora_path', ''),
@@ -255,13 +265,14 @@ class ResultsManager:
             elif "目标LoRA训练完成" in message and 'target_lora_acc' in results:
                 key = f"{target_model}_lora_{dataset}_{experiment_id}"
                 if key not in self._saved_keys:
-                    target_base_acc = results.get('target_acc', 0)
-                    improvement = ((results['target_lora_acc'] - target_base_acc) / target_base_acc * 100) if target_base_acc > 0 else 0
+                    target_base_acc = results.get('target_acc', 0) or 0
+                    target_lora_acc = results.get('target_lora_acc', 0) or 0
+                    improvement = ((target_lora_acc - target_base_acc) / target_base_acc * 100) if target_base_acc > 0 else 0
                     self.add_result(
                         base_model=target_model,
                         lora_source="lora",
                         dataset=dataset,
-                        accuracy=results['target_lora_acc'],
+                        accuracy=target_lora_acc,
                         improvement_pct=improvement,
                         config_details=f"LoRA: {target_model}, {training_config}",
                         run_file=results.get('target_lora_path', ''),

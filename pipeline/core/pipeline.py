@@ -74,11 +74,16 @@ class TransferPipeline:
         if not eval_only:
             existing = self.results.check_existing_experiment(source_model, target_model, dataset)
             if existing is not None:
-                print(f"\nWarning: Found existing experiment (timestamp: {existing['timestamp']})")
-                response = input("Continue anyway? (y/N): ").strip().lower()
-                if response not in ['y', 'yes']:
+                action = self._handle_existing_experiment(existing, source_model, target_model, dataset)
+                if action == 'abort':
                     print("Experiment cancelled.")
                     return False
+                elif action == 'delete':
+                    print("🗑️ Cleaning up existing experiment outputs...")
+                    self._cleanup_experiment_outputs(source_model, target_model, dataset)
+                    print("✅ Cleanup completed. Starting fresh experiment.")
+                elif action == 'continue':
+                    print("⏩ Continuing with existing experiment outputs.")
         
         # 初始化结果字典
         results = self._init_results_dict(source_model, target_model, dataset)
@@ -110,6 +115,139 @@ class TransferPipeline:
             return False
         
         return True
+    
+    def _handle_existing_experiment(self, existing: Dict, source_model: str, target_model: str, dataset: str) -> str:
+        """处理已存在的实验，返回用户选择的操作"""
+        import os
+        import shutil
+        import glob
+        from pathlib import Path
+        
+        print(f"\nWarning: Found existing experiment (timestamp: {existing['timestamp']})")
+        
+        # 检查配置文件中的默认行为
+        default_action = self.config.get('experiment_management.existing_experiment_action', 'prompt')
+        
+        if default_action == 'prompt':
+            print("\nWhat would you like to do?")
+            print("  [C]ontinue - Keep existing outputs and continue")
+            print("  [D]elete   - Delete all existing outputs and start fresh")
+            print("  [A]bort    - Cancel this experiment")
+            print("  [Y]es      - Same as Continue (for backward compatibility)")
+            print("  [N]o       - Same as Abort (for backward compatibility)")
+            
+            while True:
+                response = input("Choose an option (C/D/A/Y/N): ").strip().lower()
+                if response in ['c', 'continue', 'y', 'yes']:
+                    return 'continue'
+                elif response in ['d', 'delete']:
+                    return 'delete'
+                elif response in ['a', 'abort', 'n', 'no', '']:
+                    return 'abort'
+                else:
+                    print("Invalid option. Please choose C, D, A, Y, or N.")
+        elif default_action == 'continue':
+            print("⏩ Auto-continuing (configured in YAML)")
+            return 'continue'
+        elif default_action == 'delete':
+            print("🗑️ Auto-deleting (configured in YAML)")
+            return 'delete'
+        elif default_action == 'abort':
+            print("❌ Auto-aborting (configured in YAML)")
+            return 'abort'
+        else:
+            print(f"⚠️ Unknown default action: {default_action}, prompting user")
+            return self._handle_existing_experiment(existing, source_model, target_model, dataset)
+    
+    def _cleanup_experiment_outputs(self, source_model: str, target_model: str, dataset: str):
+        """清理实验输出文件"""
+        import os
+        import shutil
+        import glob
+        from pathlib import Path
+        
+        cleanup_targets = self.config.get('experiment_management.cleanup_targets', [])
+        preserve_patterns = self.config.get('experiment_management.preserve_patterns', [])
+        
+        # 提取模型名称（去除路径）
+        source_name = Path(source_model).name
+        target_name = Path(target_model).name
+        
+        cleaned_count = 0
+        
+        for target in cleanup_targets:
+            try:
+                if target == 'training_outputs':
+                    # 清理训练结果
+                    pattern_paths = [
+                        f"/root/PAW/train_lora/runs/{dataset}/{source_name}/*",
+                        f"/root/PAW/train_lora/runs/{dataset}/{target_name}/*"
+                    ]
+                    for pattern in pattern_paths:
+                        for path in glob.glob(pattern):
+                            if self._should_preserve(path, preserve_patterns):
+                                continue
+                            if os.path.isdir(path):
+                                shutil.rmtree(path)
+                                print(f"  🗑️ Removed training output: {path}")
+                                cleaned_count += 1
+                
+                elif target == 'transferred_lora':
+                    # 清理迁移的LoRA
+                    pattern = f"/root/autodl-tmp/transferred_lora/{dataset}/{source_name}_to_{target_name}/*"
+                    for path in glob.glob(pattern):
+                        if self._should_preserve(path, preserve_patterns):
+                            continue
+                        if os.path.isdir(path):
+                            shutil.rmtree(path)
+                            print(f"  🗑️ Removed transferred LoRA: {path}")
+                            cleaned_count += 1
+                
+                elif target == 'evaluation_results':
+                    # 清理评估结果
+                    pattern_paths = [
+                        f"/root/PAW/eval/results/*{source_name}*",
+                        f"/root/PAW/eval/results/*{target_name}*",
+                        f"/root/PAW/eval/results/*{dataset}*"
+                    ]
+                    for pattern in pattern_paths:
+                        for path in glob.glob(pattern):
+                            if self._should_preserve(path, preserve_patterns):
+                                continue
+                            if os.path.isfile(path):
+                                os.remove(path)
+                                print(f"  🗑️ Removed evaluation result: {path}")
+                                cleaned_count += 1
+                
+                elif target == 'pipeline_results':
+                    # 清理Pipeline结果，但保留总体结果文件的结构
+                    results_dir = Path("/root/PAW/results")
+                    if results_dir.exists():
+                        # 删除特定实验的备份文件
+                        backup_pattern = f"backup_*.json"
+                        for backup_file in results_dir.glob(backup_pattern):
+                            if self._should_preserve(str(backup_file), preserve_patterns):
+                                continue
+                            backup_file.unlink()
+                            print(f"  🗑️ Removed backup: {backup_file}")
+                            cleaned_count += 1
+                        
+                        # 清理CSV中的相关条目（这个比较复杂，暂时跳过自动清理）
+                        print(f"  ℹ️ Note: CSV entries for this experiment may still exist in experiment_results.csv")
+                        
+            except Exception as e:
+                print(f"  ⚠️ Error cleaning {target}: {e}")
+        
+        print(f"  ✅ Cleaned {cleaned_count} items")
+    
+    def _should_preserve(self, path: str, preserve_patterns: list) -> bool:
+        """检查文件是否应该被保留"""
+        import fnmatch
+        path_name = os.path.basename(path)
+        for pattern in preserve_patterns:
+            if fnmatch.fnmatch(path_name, pattern) or fnmatch.fnmatch(path, pattern):
+                return True
+        return False
     
     def _init_results_dict(self, source_model: str, target_model: str, dataset: str) -> Dict[str, Any]:
         """初始化结果字典"""
@@ -208,6 +346,7 @@ class TransferPipeline:
         
         source_lora_path, source_lora_acc, status_msg = self.trainer.train_model(source_model, dataset)
         print(f"状态: {status_msg}")
+        print(f"🔍 DEBUG: 训练器返回的准确率: {source_lora_acc}")
         if source_lora_path is None:
             return False
         
@@ -359,5 +498,3 @@ class TransferPipeline:
         
         print(f"\nEvaluate {target_name} LoRA:")
         print(f"  {eval_cmd}")
-        print()
-        print("NOTE: After training, you can compare 'Target+LoRA' vs 'Target+Transferred LoRA' performance")

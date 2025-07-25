@@ -6,8 +6,14 @@
 
 import os
 import yaml
+import warnings
 from pathlib import Path
 from typing import Dict, Any, List
+
+# 屏蔽Lightning冗长输出
+warnings.filterwarnings("ignore", message=".*sync_dist.*")
+warnings.filterwarnings("ignore", message=".*recommended.*")
+os.environ['PYTORCH_LIGHTNING_VERBOSITY'] = '1'
 
 import torch
 import pytorch_lightning as pl
@@ -177,18 +183,20 @@ def run_lightning_training(
             version=""
         )
         
-        # 创建Trainer（禁用自动checkpoint保存）
+        # 创建Trainer（禁用自动checkpoint保存，单设备训练避免多进程）
         trainer = Trainer(
             max_steps=config['training']['max_steps'],
             callbacks=callbacks,
             logger=tensorboard_logger,
-            enable_progress_bar=True,
+            enable_progress_bar=False,  # 禁用进度条避免冲突
             log_every_n_steps=1,
             enable_checkpointing=False,  # 禁用检查点，节省磁盘空间
             precision='16-mixed' if torch.cuda.is_available() else 32,
-            accelerator='auto',
-            devices='auto',
-            strategy='auto',
+            accelerator='gpu' if torch.cuda.is_available() else 'cpu',
+            devices=1,  # 强制单设备避免多进程启动
+            strategy='auto',  # 单设备时auto会选择合适策略
+            num_sanity_val_steps=2,  # 设置为2而不是0，避免完全跳过验证
+            enable_model_summary=False,  # 禁用模型摘要，减少输出
         )
         
         print(f"\n🏃‍♂️ 开始Lightning训练...")

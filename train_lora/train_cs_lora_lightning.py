@@ -51,10 +51,22 @@ import warnings
 from datetime import datetime
 from pathlib import Path
 
-# 屏蔽 Transformers 警告
+# 屏蔽 Transformers 和 Lightning 警告
 warnings.filterwarnings("ignore", message=".*cache_implementation.*")
 warnings.filterwarnings("ignore", message=".*generation flags are not valid.*")
+warnings.filterwarnings("ignore", message=".*sync_dist.*")
+warnings.filterwarnings("ignore", message=".*recommended.*")
+warnings.filterwarnings("ignore", message=".*Progress bar.*")
+warnings.filterwarnings("ignore", category=UserWarning)
 os.environ['TRANSFORMERS_VERBOSITY'] = 'error'
+os.environ['PYTORCH_LIGHTNING_VERBOSITY'] = 'ERROR'  # 只显示错误信息
+os.environ['TQDM_DISABLE'] = '1'  # 禁用tqdm进度条
+
+# 强制使用单GPU，避免多进程启动（4卡A800环境）
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'  # 只使用第一张GPU
+os.environ['WORLD_SIZE'] = '1'  # 强制单节点
+os.environ['LOCAL_RANK'] = '0'
+os.environ['RANK'] = '0'
 
 # 添加项目根目录到路径
 project_root = os.path.dirname(os.path.abspath(__file__))

@@ -207,13 +207,42 @@ class OutputParser:
     def parse_training_accuracy(output: str) -> Optional[float]:
         """解析训练输出，提取准确率"""
         try:
+            # Method 1: Look for table format accuracy (Lightning style with box drawing chars)
+            table_pattern = r"│\s*test/accuracy\s*│\s*([\d.]+)\s*│"
+            match = re.search(table_pattern, output, re.IGNORECASE)
+            if match:
+                accuracy = float(match.group(1))
+                print(f"   Extracted training accuracy from table: {accuracy:.4f}")
+                return accuracy
+                
+            # Method 2: Look for table format with pipe chars
+            pipe_pattern = r"\|\s*test/accuracy\s*\|\s*([\d.]+)\s*\|"
+            match = re.search(pipe_pattern, output, re.IGNORECASE)
+            if match:
+                accuracy = float(match.group(1))
+                print(f"   Extracted training accuracy from pipe table: {accuracy:.4f}")
+                return accuracy
+                
+            # Method 3: Look for dictionary format accuracy
+            dict_pattern = r"['\"]?test/accuracy['\"]?\s*[:\|]\s*([\d.]+)"
+            match = re.search(dict_pattern, output, re.IGNORECASE)
+            if match:
+                accuracy = float(match.group(1))
+                print(f"   Extracted training accuracy from dict: {accuracy:.4f}")
+                return accuracy
+            
+            # Method 4: Look for test_result format
             lines = output.split('\n')
             for line in lines:
                 if 'test/accuracy' in line and 'test_result' in line:
                     # 提取类似 'test/accuracy': 0.7465870380401611 的信息
                     match = re.search(r"'test/accuracy':\s*([\d.]+)", line)
                     if match:
-                        return float(match.group(1))
+                        accuracy = float(match.group(1))
+                        print(f"   Extracted training accuracy from test_result: {accuracy:.4f}")
+                        return accuracy
+            
+            print(f"   WARNING: Could not extract training accuracy, returning None")
             return None
         except Exception as e:
             print(f"⚠️ 解析训练输出时出错: {e}")
