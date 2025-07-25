@@ -128,32 +128,41 @@ class TransferPipeline:
     def _execute_pipeline_steps(self, results: Dict[str, Any], source_model: str, 
                                target_model: str, dataset: str, eval_only: bool) -> bool:
         """执行管道步骤"""
-        # 设置进度条
-        total_steps = 6 if not eval_only else 4
-        progress_bar = tqdm(total=total_steps, desc="Pipeline Progress", position=1, leave=True, ncols=80)
+        # 总是显示完整的6步进度条
+        progress_bar = tqdm(total=6, desc="Pipeline Progress", position=1, leave=True, ncols=80)
         
         try:
+            # 步骤1: 训练源LoRA
             if not eval_only:
-                # 步骤1: 训练源LoRA
                 if not self._step_train_source_lora(results, source_model, dataset, progress_bar):
                     raise Exception("源模型训练失败")
-                
-                # 步骤2: 迁移LoRA
+            else:
+                self._step_skip_with_reason("STEP 1/6: TRAIN SOURCE LORA", "仅评估模式，跳过训练", progress_bar)
+            
+            # 步骤2: 迁移LoRA
+            if not eval_only:
                 if not self._step_transfer_lora(results, source_model, target_model, dataset, progress_bar):
                     raise Exception("LoRA迁移失败")
+            else:
+                self._step_skip_with_reason("STEP 2/6: TRANSFER LORA", "仅评估模式，跳过迁移", progress_bar)
             
             # 步骤3: 评估目标基础模型
             if not self._step_eval_target_base(results, target_model, dataset, progress_bar):
                 print("⚠️ 目标基础模型评估失败，但继续执行")
             
+            # 步骤4: 评估迁移LoRA
             if not eval_only:
-                # 步骤4: 评估迁移LoRA
                 if not self._step_eval_transferred_lora(results, target_model, dataset, progress_bar):
                     print("⚠️ 迁移LoRA评估失败，但继续执行")
-                
-                # 步骤5: 训练目标LoRA
+            else:
+                self._step_skip_with_reason("STEP 4/6: EVAL TRANSFERRED LORA", "仅评估模式，无迁移LoRA可评估", progress_bar)
+            
+            # 步骤5: 训练目标LoRA
+            if not eval_only:
                 if not self._step_train_target_lora(results, target_model, dataset, progress_bar):
                     print("⚠️ 目标模型训练失败，但继续执行")
+            else:
+                self._step_skip_with_reason("STEP 5/6: TRAIN TARGET LORA", "仅评估模式，跳过训练", progress_bar)
             
             # 步骤6: 评估源基础模型
             if not self._step_eval_source_base(results, source_model, dataset, progress_bar):
@@ -181,6 +190,15 @@ class TransferPipeline:
             self.results.save_partial_results(results, f"失败: {e}")
             return False
     
+    def _step_skip_with_reason(self, step_title: str, reason: str, progress_bar: tqdm):
+        """显示跳过的步骤及原因"""
+        print(f"\n{'='*60}")
+        print(step_title)
+        print("="*60)
+        print(f"🚫 跳过原因: {reason}")
+        print("="*60)
+        progress_bar.update(1)
+    
     def _step_train_source_lora(self, results: Dict[str, Any], source_model: str, 
                                dataset: str, progress_bar: tqdm) -> bool:
         """步骤1: 训练源LoRA"""
@@ -188,7 +206,8 @@ class TransferPipeline:
         print("STEP 1/6: TRAIN SOURCE LORA")
         print("="*60)
         
-        source_lora_path, source_lora_acc = self.trainer.train_model(source_model, dataset)
+        source_lora_path, source_lora_acc, status_msg = self.trainer.train_model(source_model, dataset)
+        print(f"状态: {status_msg}")
         if source_lora_path is None:
             return False
         
@@ -253,7 +272,8 @@ class TransferPipeline:
         print("STEP 5/6: TRAIN TARGET LORA")
         print("="*60)
         
-        target_lora_path, target_lora_acc = self.trainer.train_model(target_model, dataset)
+        target_lora_path, target_lora_acc, status_msg = self.trainer.train_model(target_model, dataset)
+        print(f"状态: {status_msg}")
         if target_lora_path is None:
             target_lora_acc = None
         

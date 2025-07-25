@@ -170,17 +170,124 @@ class ResultsManager:
         return True
     
     def save_results(self, experiment_data: Dict[str, Any]):
-        """保存实验结果 - 兼容原接口"""
-        return self.save_pipeline_results(experiment_data)
+        """保存实验结果 - 兼容原接口，但避免重复保存"""
+        if self.verbose:
+            print(f"\n💾 保存完整实验结果...")
+        
+        # 如果已经通过save_partial_results保存了结果，就不重复保存
+        if hasattr(self, '_saved_keys') and self._saved_keys:
+            if self.verbose:
+                print(f"✅ 所有结果已通过增量保存完成，跳过重复保存")
+            return True
+        else:
+            # 如果没有增量保存过，就使用完整保存
+            return self.save_pipeline_results(experiment_data)
     
     def save_partial_results(self, results: Dict[str, Any], message: str):
-        """保存部分结果 - 简化版本"""
+        """保存部分结果 - 增量保存，避免重复"""
         if self.verbose:
             print(f"💾 {message} - 立即更新结果...")
         
-        # 不再保存多个backup文件，直接更新主CSV
+        # 使用实例变量追踪已保存的结果，避免重复
+        if not hasattr(self, '_saved_keys'):
+            self._saved_keys = set()
+        
         try:
-            self.save_pipeline_results(results)
+            # 提取基础信息
+            source_model = ModelUtils.get_model_short_name(results.get('source_model', ''))
+            target_model = ModelUtils.get_model_short_name(results.get('target_model', ''))
+            dataset = results.get('dataset', '')
+            experiment_id = results.get('experiment_id', '')
+            training_config = results.get('training_config', '')
+            
+            # 根据message类型决定保存哪个结果
+            if "源LoRA训练完成" in message and 'source_lora_acc' in results:
+                key = f"{source_model}_lora_{dataset}_{experiment_id}"
+                if key not in self._saved_keys:
+                    source_base_acc = results.get('source_acc', 0)
+                    improvement = ((results['source_lora_acc'] - source_base_acc) / source_base_acc * 100) if source_base_acc > 0 else 0
+                    self.add_result(
+                        base_model=source_model,
+                        lora_source="lora",
+                        dataset=dataset,
+                        accuracy=results['source_lora_acc'],
+                        improvement_pct=improvement,
+                        config_details=f"LoRA: {source_model}, {training_config}",
+                        run_file=results.get('source_lora_path', ''),
+                        note="源LoRA模型"
+                    )
+                    self._saved_keys.add(key)
+            
+            elif "目标基础模型评估完成" in message and 'target_acc' in results:
+                key = f"{target_model}_base_{dataset}_{experiment_id}"
+                if key not in self._saved_keys:
+                    self.add_result(
+                        base_model=target_model,
+                        lora_source="base",
+                        dataset=dataset,
+                        accuracy=results['target_acc'],
+                        improvement_pct=0.0,
+                        config_details="-",
+                        run_file=experiment_id,
+                        note="目标基础模型"
+                    )
+                    self._saved_keys.add(key)
+            
+            elif "迁移LoRA评估完成" in message and 'transferred_acc' in results:
+                key = f"{target_model}_adpt_{dataset}_{experiment_id}"
+                if key not in self._saved_keys:
+                    target_base_acc = results.get('target_acc', 0)
+                    improvement = ((results['transferred_acc'] - target_base_acc) / target_base_acc * 100) if target_base_acc > 0 else 0
+                    similarity_threshold = self.config.get('transfer.similarity_threshold', 0.0001)
+                    transfer_config = f"LoRA source: {source_model}, {training_config}; Adapter: 迁移, sim={similarity_threshold}"
+                    self.add_result(
+                        base_model=target_model,
+                        lora_source="adpt",
+                        dataset=dataset,
+                        accuracy=results['transferred_acc'],
+                        improvement_pct=improvement,
+                        config_details=transfer_config,
+                        run_file=results.get('transferred_lora_path', ''),
+                        note="迁移LoRA模型"
+                    )
+                    self._saved_keys.add(key)
+            
+            elif "目标LoRA训练完成" in message and 'target_lora_acc' in results:
+                key = f"{target_model}_lora_{dataset}_{experiment_id}"
+                if key not in self._saved_keys:
+                    target_base_acc = results.get('target_acc', 0)
+                    improvement = ((results['target_lora_acc'] - target_base_acc) / target_base_acc * 100) if target_base_acc > 0 else 0
+                    self.add_result(
+                        base_model=target_model,
+                        lora_source="lora",
+                        dataset=dataset,
+                        accuracy=results['target_lora_acc'],
+                        improvement_pct=improvement,
+                        config_details=f"LoRA: {target_model}, {training_config}",
+                        run_file=results.get('target_lora_path', ''),
+                        note="目标LoRA模型"
+                    )
+                    self._saved_keys.add(key)
+            
+            elif "源基础模型评估完成" in message and 'source_acc' in results:
+                key = f"{source_model}_base_{dataset}_{experiment_id}"
+                if key not in self._saved_keys:
+                    self.add_result(
+                        base_model=source_model,
+                        lora_source="base",
+                        dataset=dataset,
+                        accuracy=results['source_acc'],
+                        improvement_pct=0.0,
+                        config_details="-",
+                        run_file=experiment_id,
+                        note="源基础模型"
+                    )
+                    self._saved_keys.add(key)
+            
+            elif "LoRA迁移完成" in message:
+                # 迁移完成但还没评估，不保存accuracy
+                pass
+                
         except Exception as e:
             if self.verbose:
                 print(f"⚠️ 保存结果时出错: {e}")

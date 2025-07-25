@@ -17,7 +17,7 @@ class ModelTrainer:
         self.runner = CommandRunner(verbose=verbose)
         self.verbose = verbose
     
-    def train_model(self, model_path: str, dataset: str) -> Tuple[Optional[str], Optional[float]]:
+    def train_model(self, model_path: str, dataset: str) -> Tuple[Optional[str], Optional[float], str]:
         """训练模型+LoRA
         
         Args:
@@ -25,7 +25,7 @@ class ModelTrainer:
             dataset: 数据集名称
             
         Returns:
-            Tuple[模型路径, 准确率] 或 (None, None) 如果失败
+            Tuple[模型路径, 准确率, 状态消息]
         """
         model_name = ModelUtils.get_model_short_name(model_path)
         
@@ -37,7 +37,7 @@ class ModelTrainer:
         if existing_path:
             if self.verbose:
                 print(f"Found existing training results: {existing_path}")
-            return existing_path, None  # Return path and empty accuracy (needs evaluation)
+            return existing_path, None, f"发现已有训练结果: {existing_path}"  # Return path and empty accuracy (needs evaluation)
         
         # 构建训练命令
         cmd = self._build_train_command(model_path, dataset)
@@ -50,7 +50,7 @@ class ModelTrainer:
         )
         
         if output is None:
-            return None, None
+            return None, None, "训练失败：命令执行错误"
         
         # 解析输出获取准确率
         accuracy = OutputParser.parse_training_accuracy(output)
@@ -58,7 +58,10 @@ class ModelTrainer:
         # 查找生成的模型路径
         final_model_path = self._find_latest_model(model_name, dataset)
         
-        return final_model_path, accuracy
+        if final_model_path:
+            return final_model_path, accuracy, f"训练完成，模型保存至: {final_model_path}"
+        else:
+            return None, accuracy, "训练执行完成，但未找到输出模型"
     
     def _check_existing_training(self, model_name: str, dataset: str) -> Optional[str]:
         """检查是否已有训练结果"""
