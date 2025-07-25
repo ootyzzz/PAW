@@ -14,7 +14,7 @@ paths:
 # 训练配置 (快速测试参数)
 training:
   default_batch_size: 4
-  default_max_steps: 20  # 减少训练步数
+  default_max_steps: 40  # 减少训练步数
   default_lr: '1e-5'
   datasets:
     - 'arc-challenge'

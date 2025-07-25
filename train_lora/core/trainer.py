@@ -47,7 +47,7 @@ class SwanLabLogger:
         return self._run
 
 
-def setup_callbacks(config: Dict[str, Any]) -> List[pl.Callback]:
+def setup_callbacks(config: Dict[str, Any], steps_per_epoch: int, max_steps: int) -> List[pl.Callback]:
     """设置Lightning回调（学习率监控、早停）"""
     callbacks = []
     
@@ -55,22 +55,30 @@ def setup_callbacks(config: Dict[str, Any]) -> List[pl.Callback]:
     lr_monitor = LearningRateMonitor(logging_interval='step')
     callbacks.append(lr_monitor)
     
-    # 早停回调 - 根据训练步数动态配置
-    max_steps = config.get('training', {}).get('max_steps', 125)
-    if max_steps <= 50:  # 快速测试模式 - 禁用早停
-        print("🔧 快速测试模式：禁用早停功能")
+    # 智能早停配置 - 基于epoch分析
+    epochs_to_train = max_steps / steps_per_epoch
+    
+    if epochs_to_train < 1.0:
+        # 不足一个epoch - 禁用validation和早停
+        print(f"🔧 训练步数不足一个epoch ({max_steps} < {steps_per_epoch})：禁用validation和早停")
+        print(f"   💡 建议：增加max_steps到至少{steps_per_epoch}以覆盖一个完整epoch")
         # 不添加早停回调
-    else:  # 正常训练模式
+    elif epochs_to_train < 2.0:
+        # 少于2个epoch - 仍然禁用早停，避免过早停止
+        print(f"🔧 训练epoch数较少 ({epochs_to_train:.2f} epochs)：禁用早停避免过早终止")
+        # 不添加早停回调
+    else:
+        # 正常训练模式 - 启用早停
+        patience_steps = min(50, int(steps_per_epoch * 0.5))  # 耐心设为半个epoch或50步，取较小值
+        print(f"✅ 正常训练模式 ({epochs_to_train:.2f} epochs)：启用早停 (patience={patience_steps})")
         early_stopping = EarlyStopping(
             monitor='val_accuracy',
-            patience=50,
+            patience=patience_steps,
             mode='max',
             verbose=True,
             min_delta=0.001  # 至少提升0.1%才算改善
         )
         callbacks.append(early_stopping)
-    
-    # 注意：学习率调度器将在模型内部配置
     
     return callbacks
 
@@ -173,8 +181,20 @@ def run_lightning_training(
         # 将SwanLab run添加到模块中
         lightning_module._swanlab_run = swanlab_run
         
-        # 设置回调
-        callbacks = setup_callbacks(config)
+        # 计算一个epoch的步数，用于决定是否启用validation
+        data_module.setup('fit')  # 初始化数据模块
+        train_dataloader = data_module.train_dataloader()
+        steps_per_epoch = len(train_dataloader)
+        max_steps = config['training']['max_steps']
+        
+        print(f"📊 训练数据分析:")
+        print(f"  - 训练样本总数: {len(data_module.train_dataset)}")
+        print(f"  - 每个epoch步数: {steps_per_epoch}")
+        print(f"  - 计划训练步数: {max_steps}")
+        print(f"  - 预计训练epoch数: {max_steps / steps_per_epoch:.2f}")
+        
+        # 设置回调（传入epoch信息用于智能配置）
+        callbacks = setup_callbacks(config, steps_per_epoch, max_steps)
         
         # 设置日志记录器
         tensorboard_logger = TensorBoardLogger(
@@ -241,7 +261,11 @@ def run_lightning_training(
         print(f"📁 实验目录: {experiment_dir}")
         print(f"📁 最终模型: {final_model_dir}")
         print(f"📊 训练步数: {config['training']['max_steps']}")
-        print(f"🎯 最终测试结果: {test_results[0] if test_results else '未完成'}")
+        # 不再重复打印详细结果，Lightning已经在表格中显示了
+        if test_results:
+            print(f"🎯 测试完成 (详细结果见上方表格)")
+        else:
+            print(f"🎯 测试结果: 未完成")
         
         return results
         

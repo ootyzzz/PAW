@@ -14,7 +14,7 @@ paths:
 # 训练配置
 training:
   default_batch_size: 4
-  default_max_steps: 600
+  default_max_steps: 200
   default_lr: '1e-5'
   # 要运行的数据集列表 - 不需要的可以注释掉
   datasets:

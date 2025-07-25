@@ -27,6 +27,9 @@ class ResultsManager:
         """确保结果目录存在"""
         results_dir = self.config.get('paths.results_dir')
         os.makedirs(results_dir, exist_ok=True)
+        # 确保backup_csv目录存在
+        backup_dir = os.path.join(results_dir, 'backup_csv')
+        os.makedirs(backup_dir, exist_ok=True)
     
     def _get_csv_path(self) -> str:
         """获取CSV文件路径"""
@@ -43,11 +46,82 @@ class ResultsManager:
                 writer = csv.writer(f)
                 writer.writerow(self.csv_headers)
     
+    def _is_duplicate(self, base_model: str, lora_source: str, dataset: str, 
+                     accuracy: float, config_details: str) -> bool:
+        """检查是否为重复记录"""
+        csv_path = self._get_csv_path()
+        if not os.path.exists(csv_path):
+            return False
+        
+        # 格式化accuracy用于比较
+        accuracy_str = f"{accuracy:.4f}" if accuracy is not None else "0.0000"
+        
+        try:
+            with open(csv_path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if (row.get('base_model') == base_model and 
+                        row.get('lora_source') == lora_source and
+                        row.get('dataset') == dataset and
+                        row.get('accuracy') == accuracy_str and
+                        row.get('config_details') == config_details):
+                        return True
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ 检查重复记录时出错: {e}")
+        
+        return False
+    
+    def _validate_data(self, base_model: str, lora_source: str, dataset: str, 
+                      accuracy: float, improvement_pct: float, config_details: str,
+                      run_file: str, note: str) -> bool:
+        """验证数据格式和完整性"""
+        try:
+            # 检查必填字段
+            if not base_model or not lora_source or not dataset:
+                if self.verbose:
+                    print(f"⚠️ 缺少必填字段: base_model='{base_model}', lora_source='{lora_source}', dataset='{dataset}'")
+                return False
+            
+            # 检查字段中是否包含换行符或逗号（会破坏CSV格式）
+            fields_to_check = [base_model, lora_source, dataset, config_details, run_file, note]
+            for field in fields_to_check:
+                if isinstance(field, str) and ('\n' in field or '\r' in field):
+                    if self.verbose:
+                        print(f"⚠️ 字段包含换行符，可能破坏CSV格式: '{field[:50]}...'")
+                    return False
+            
+            # 检查数值字段
+            if accuracy is not None and (accuracy < 0 or accuracy > 1):
+                if self.verbose:
+                    print(f"⚠️ accuracy值异常: {accuracy}")
+                # 允许但警告
+            
+            return True
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ 数据验证时出错: {e}")
+            return False
+
     def add_result(self, base_model: str, lora_source: str, dataset: str, 
                    accuracy: float, improvement_pct: float, config_details: str,
                    run_file: str = "", note: str = ""):
-        """添加单个结果到CSV"""
+        """添加单个结果到CSV，支持查重和数据验证"""
         self._ensure_csv_exists()
+        
+        # 数据验证
+        if not self._validate_data(base_model, lora_source, dataset, accuracy, 
+                                 improvement_pct, config_details, run_file, note):
+            if self.verbose:
+                print(f"❌ 数据验证失败，跳过写入")
+            return False
+        
+        # 查重检查
+        if self._is_duplicate(base_model, lora_source, dataset, accuracy, config_details):
+            if self.verbose:
+                accuracy_display = accuracy if accuracy is not None else 0.0
+                print(f"🔄 重复记录，跳过写入: {base_model} - {lora_source} - {accuracy_display:.4f}")
+            return False
         
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
@@ -55,130 +129,36 @@ class ResultsManager:
         accuracy_str = f"{accuracy:.4f}" if accuracy is not None else "0.0000"
         improvement_str = f"{improvement_pct:.2f}" if improvement_pct is not None else "0.00"
         
+        # 清理字段中的换行符
+        base_model = base_model.replace('\n', ' ').replace('\r', ' ')
+        lora_source = lora_source.replace('\n', ' ').replace('\r', ' ')
+        dataset = dataset.replace('\n', ' ').replace('\r', ' ')
+        config_details = config_details.replace('\n', ' ').replace('\r', ' ')
+        run_file = run_file.replace('\n', ' ').replace('\r', ' ')
+        note = note.replace('\n', ' ').replace('\r', ' ')
+        
         row_data = [
             base_model, lora_source, dataset, accuracy_str, 
             improvement_str, config_details, run_file, timestamp, note
         ]
         
         csv_path = self._get_csv_path()
-        with open(csv_path, 'a', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow(row_data)
-        
-        if self.verbose:
-            accuracy_display = accuracy if accuracy is not None else 0.0
-            print(f"💾 结果已添加: {base_model} - {lora_source} - {accuracy_display:.4f}")
-    
-    def save_pipeline_results(self, experiment_data: Dict[str, Any]):
-        """保存完整管道实验结果"""
-        if self.verbose:
-            print(f"\n💾 保存管道实验结果...")
-        
-        # 提取基础信息
-        source_model = ModelUtils.get_model_short_name(experiment_data.get('source_model', ''))
-        target_model = ModelUtils.get_model_short_name(experiment_data.get('target_model', ''))
-        dataset = experiment_data.get('dataset', '')
-        experiment_id = experiment_data.get('experiment_id', '')
-        
-        # 获取配置信息
-        training_config = experiment_data.get('training_config', '')
-        
-        # 添加各种模型结果
-        results_added = 0
-        
-        # 1. 源基础模型
-        if 'source_acc' in experiment_data and experiment_data['source_acc'] is not None:
-            self.add_result(
-                base_model=source_model,
-                lora_source="base",
-                dataset=dataset,
-                accuracy=experiment_data['source_acc'],
-                improvement_pct=0.0,
-                config_details="-",
-                run_file=experiment_id,
-                note="源基础模型"
-            )
-            results_added += 1
-        
-        # 2. 源LoRA模型
-        if 'source_lora_acc' in experiment_data and experiment_data['source_lora_acc'] is not None:
-            source_base_acc = experiment_data.get('source_acc', 0) or 0
-            source_lora_acc = experiment_data['source_lora_acc'] or 0
-            improvement = ((source_lora_acc - source_base_acc) / source_base_acc * 100) if source_base_acc > 0 else 0
+        try:
+            with open(csv_path, 'a', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(row_data)
             
-            self.add_result(
-                base_model=source_model,
-                lora_source="lora",
-                dataset=dataset,
-                accuracy=source_lora_acc,
-                improvement_pct=improvement,
-                config_details=f"LoRA: {source_model}, {training_config}",
-                run_file=experiment_data.get('source_lora_path', ''),
-                note="源LoRA模型"
-            )
-            results_added += 1
-        
-        # 3. 目标基础模型
-        if 'target_acc' in experiment_data and experiment_data['target_acc'] is not None:
-            self.add_result(
-                base_model=target_model,
-                lora_source="base",
-                dataset=dataset,
-                accuracy=experiment_data['target_acc'],
-                improvement_pct=0.0,
-                config_details="-",
-                run_file=experiment_id,
-                note="目标基础模型"
-            )
-            results_added += 1
-        
-        # 4. 迁移LoRA模型
-        if 'transferred_acc' in experiment_data and experiment_data['transferred_acc'] is not None:
-            target_base_acc = experiment_data.get('target_acc', 0) or 0
-            transferred_acc = experiment_data['transferred_acc'] or 0
-            improvement = ((transferred_acc - target_base_acc) / target_base_acc * 100) if target_base_acc > 0 else 0
-            
-            # 获取迁移配置
-            similarity_threshold = self.config.get('transfer.similarity_threshold', 0.0001)
-            transfer_config = f"LoRA source: {source_model}, {training_config}; Adapter: 迁移, sim={similarity_threshold}"
-            
-            self.add_result(
-                base_model=target_model,
-                lora_source="adpt",
-                dataset=dataset,
-                accuracy=transferred_acc,
-                improvement_pct=improvement,
-                config_details=transfer_config,
-                run_file=experiment_data.get('transferred_lora_path', ''),
-                note="迁移LoRA模型"
-            )
-            results_added += 1
-        
-        # 5. 目标LoRA模型
-        if 'target_lora_acc' in experiment_data and experiment_data['target_lora_acc'] is not None:
-            target_base_acc = experiment_data.get('target_acc', 0) or 0
-            target_lora_acc = experiment_data['target_lora_acc'] or 0
-            improvement = ((target_lora_acc - target_base_acc) / target_base_acc * 100) if target_base_acc > 0 else 0
-            
-            self.add_result(
-                base_model=target_model,
-                lora_source="lora",
-                dataset=dataset,
-                accuracy=target_lora_acc,
-                improvement_pct=improvement,
-                config_details=f"LoRA: {target_model}, {training_config}",
-                run_file=experiment_data.get('target_lora_path', ''),
-                note="目标LoRA模型"
-            )
-            results_added += 1
-        
-        if self.verbose:
-            print(f"✅ 已添加 {results_added} 条结果到 {self._get_csv_path()}")
-        
-        return True
+            if self.verbose:
+                accuracy_display = accuracy if accuracy is not None else 0.0
+                print(f"💾 结果已添加: {base_model} - {lora_source} - {accuracy_display:.4f}")
+            return True
+        except Exception as e:
+            if self.verbose:
+                print(f"❌ 写入CSV时出错: {e}")
+            return False
     
     def save_results(self, experiment_data: Dict[str, Any]):
-        """保存实验结果 - 兼容原接口，但避免重复保存"""
+        """保存实验结果 - 简化版本，不生成汇总文件"""
         if self.verbose:
             print(f"\n💾 保存完整实验结果...")
         
@@ -188,8 +168,9 @@ class ResultsManager:
                 print(f"✅ 所有结果已通过增量保存完成，跳过重复保存")
             return True
         else:
-            # 如果没有增量保存过，就使用完整保存
-            return self.save_pipeline_results(experiment_data)
+            if self.verbose:
+                print(f"✅ 结果已通过分步保存完成，无需额外处理")
+            return True
     
     def save_partial_results(self, results: Dict[str, Any], message: str):
         """保存部分结果 - 增量保存，避免重复"""
@@ -309,6 +290,12 @@ class ResultsManager:
                 )
                 try:
                     import json
+                    # CSV写入失败时的备份文件 - 放在backup_csv目录
+                    backup_dir = os.path.join(self.config.get('paths.results_dir'), 'backup_csv')
+                    os.makedirs(backup_dir, exist_ok=True)
+                    backup_filename = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                    backup_path = os.path.join(backup_dir, backup_filename)
+                    
                     with open(backup_path, 'w', encoding='utf-8') as f:
                         json.dump(results, f, indent=2, ensure_ascii=False, default=str)
                     print(f"📝 备用保存: {backup_path}")

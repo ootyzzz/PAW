@@ -4,6 +4,7 @@
 """
 
 import os
+import yaml
 from typing import Optional, Tuple
 from .config import PipelineConfig
 from .utils import ModelUtils, CommandRunner, OutputParser
@@ -66,26 +67,107 @@ class ModelTrainer:
             return None, accuracy, "训练执行完成，但未找到输出模型"
     
     def _check_existing_training(self, model_name: str, dataset: str) -> Optional[str]:
-        """检查是否已有训练结果"""
+        """检查是否已有相同配置的训练结果
+        
+        目前只比对batch_size和max_steps - 可扩展到更多参数
+        """
         runs_dir = os.path.join(self.config.get('paths.runs_dir'), dataset, model_name)
         
         if not os.path.exists(runs_dir):
             return None
         
-        # 查找最新的训练结果
+        # 获取当前配置
+        current_batch_size = self.config.get('training.default_batch_size')
+        current_max_steps = self.config.get('training.default_max_steps')
+        
+        # 查找所有训练结果目录
         existing_runs = [d for d in os.listdir(runs_dir) 
                         if os.path.isdir(os.path.join(runs_dir, d))]
         
         if not existing_runs:
             return None
         
-        latest_run = sorted(existing_runs)[-1]
-        final_model_path = os.path.join(runs_dir, latest_run, "final_model")
-        
-        if os.path.exists(final_model_path):
-            return final_model_path
+        # 检查每个训练结果，比对配置
+        for run_dir in sorted(existing_runs, reverse=True):  # 从最新开始
+            run_path = os.path.join(runs_dir, run_dir)
+            final_model_path = os.path.join(run_path, "final_model")
+            
+            # 检查final_model是否存在
+            if not os.path.exists(final_model_path):
+                continue
+                
+            # 查找配置文件进行比对
+            config_files = [
+                os.path.join(run_path, "hparams.yaml"),      # Lightning默认参数文件
+                os.path.join(run_path, "trainer_state.json"), # Transformers训练状态
+                os.path.join(run_path, "training_args.json"), # 训练参数
+                os.path.join(run_path, "config.json"),       # 通用配置
+            ]
+            
+            for config_file in config_files:
+                if os.path.exists(config_file):
+                    try:
+                        if self._config_matches(config_file, current_batch_size, current_max_steps):
+                            if self.verbose:
+                                print(f"   发现匹配配置的训练结果: {final_model_path}")
+                                print(f"   配置文件: {os.path.basename(config_file)}")
+                            return final_model_path
+                    except Exception as e:
+                        if self.verbose:
+                            print(f"   配置文件读取失败 {config_file}: {e}")
+                        continue
         
         return None
+    
+    def _config_matches(self, config_file: str, target_batch_size: int, target_max_steps: int) -> bool:
+        """检查配置文件是否匹配当前训练配置
+        
+        目前只比对batch_size和max_steps
+        """
+        import json
+        import yaml
+        
+        try:
+            # 根据文件扩展名选择解析方式
+            if config_file.endswith('.yaml') or config_file.endswith('.yml'):
+                with open(config_file, 'r', encoding='utf-8') as f:
+                    config = yaml.safe_load(f)
+            else:
+                with open(config_file, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+            
+            # 查找batch_size的各种可能键名
+            batch_size_keys = ['batch_size', 'per_device_train_batch_size', 'train_batch_size', 'bs']
+            found_batch_size = None
+            
+            for key in batch_size_keys:
+                if key in config:
+                    found_batch_size = config[key]
+                    break
+            
+            # 查找max_steps的各种可能键名
+            max_steps_keys = ['max_steps', 'total_steps', 'training_steps']
+            found_max_steps = None
+            
+            for key in max_steps_keys:
+                if key in config:
+                    found_max_steps = config[key]
+                    break
+            
+            # 比对配置
+            batch_match = (found_batch_size is None or found_batch_size == target_batch_size)
+            steps_match = (found_max_steps is None or found_max_steps == target_max_steps)
+            
+            if self.verbose and (found_batch_size is not None or found_max_steps is not None):
+                print(f"     配置比对: batch_size {found_batch_size} vs {target_batch_size}, "
+                      f"max_steps {found_max_steps} vs {target_max_steps}")
+            
+            return batch_match and steps_match
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"     配置解析失败: {e}")
+            return False
     
     def _read_accuracy_from_existing(self, model_path: str) -> Optional[float]:
         """从已有训练结果中读取准确率"""
