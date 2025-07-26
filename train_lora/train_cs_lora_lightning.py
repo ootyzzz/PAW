@@ -86,7 +86,7 @@ def main():
     parser = argparse.ArgumentParser(description="Lightning + SwanLab LoRA训练脚本")
     parser.add_argument("--dataset", type=str, required=True,
                        help="要训练的数据集名称 (arc-challenge, arc-easy, boolq, hellaswag, openbookqa, piqa, winogrande)")
-    parser.add_argument("--config", type=str, default="../configs/lightning_config.yaml",
+    parser.add_argument("--config", type=str, default="./config/lightning_config.yaml",
                        help="Lightning配置文件路径")
     parser.add_argument("--dry_run", action="store_true",
                        help="干运行模式: 验证配置和数据文件，创建实验目录，但不实际训练模型")

@@ -98,6 +98,14 @@ def create_lightning_config(
     # 智能选择测试文件路径 - 支持validation作为fallback
     test_file_path, using_validation = get_test_file_path(dataset_name)
     
+    # 确保config有所需的sections
+    if 'data' not in config:
+        config['data'] = {}
+    if 'training' not in config:
+        config['training'] = {}
+    if 'paths' not in config:
+        config['paths'] = {}
+    
     # 更新数据路径 - 使用绝对路径，确保从正确位置读取数据
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # /root/PAW
     config['data']['train_file'] = os.path.join(project_root, f"data_to_lora/cs/{dataset_name}/{dataset_name}_train_formatted.jsonl")
@@ -138,14 +146,14 @@ def create_lightning_config(
     
     # 现代化的输出目录结构 - 按数据集分组，再按模型分组
     base_dir = Path("./runs") / dataset_name / model_name / experiment_name.split('_')[-1]  # 只使用时间戳部分
-    config['paths'] = {
+    config['paths'].update({
         'experiment_dir': str(base_dir),
         'checkpoints_dir': str(base_dir / "checkpoints"),
         'tensorboard_dir': str(base_dir / "tensorboard_logs"),
         'swanlab_dir': str(base_dir / "swanlab_logs"),
         'final_model_dir': str(base_dir / "final_model"),
         'config_file': str(base_dir / "config.yaml")
-    }
+    })
     
     # 实验元数据
     config['experiment'] = {
