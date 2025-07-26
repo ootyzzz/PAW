@@ -157,103 +157,103 @@ class LightningModelEvaluator(pl.LightningModule):
             print(f"🔍 检查LoRA配置文件: {config_path} (存在: {config_path.exists()})")
             
             if config_path.exists():
-            # LoRA模型加载流程
-            print("🔧 检测到LoRA模型，使用PEFT加载...")
-            try:
-                # 加载PEFT配置获取基础模型信息
-                peft_config = PeftConfig.from_pretrained(self.model_path)
-                detected_base_model = peft_config.base_model_name_or_path
+                # LoRA模型加载流程
+                print("🔧 检测到LoRA模型，使用PEFT加载...")
+                try:
+                    # 加载PEFT配置获取基础模型信息
+                    peft_config = PeftConfig.from_pretrained(self.model_path)
+                    detected_base_model = peft_config.base_model_name_or_path
+                    
+                    # 使用提供的基础模型路径或检测到的路径
+                    actual_base_model = self.base_model_path or detected_base_model
+                    
+                    # 确认基础模型路径
+                    if not os.path.exists(actual_base_model) and "/" not in actual_base_model:
+                        # 可能是相对路径，尝试autodl-tmp中的常见位置
+                        for prefix in ["/root/autodl-tmp/models/", "/root/autodl-tmp/"]:
+                            test_path = f"{prefix}{actual_base_model}"
+                            if os.path.exists(test_path):
+                                actual_base_model = test_path
+                                break
+                    
+                    print(f"📦 加载基础模型: {actual_base_model}")
+                    
+                    # 加载基础模型的tokenizer (移除local_files_only限制)
+                    tokenizer_kwargs = {"trust_remote_code": True}
+                    
+                    self.tokenizer = AutoTokenizer.from_pretrained(actual_base_model, **tokenizer_kwargs)
+                    
+                    # 特殊处理Gemma模型
+                    if "gemma" in actual_base_model.lower():
+                        print("🦙 检测到Gemma模型，应用特殊配置...")
+                        load_kwargs.update({
+                            "attn_implementation": "eager",  # 避免使用flash attention
+                            "use_cache": False,  # 禁用缓存机制
+                            "_attn_implementation_internal": "eager"
+                        })
+                    
+                    # 加载基础模型
+                    base_model = AutoModelForCausalLM.from_pretrained(
+                        actual_base_model,
+                        **load_kwargs
+                    )
+                    
+                    print(f"🔧 加载LoRA适配器: {self.model_path}")
+                    # 加载PEFT模型
+                    self.model = PeftModel.from_pretrained(base_model, self.model_path)
+                    
+                except Exception as e:
+                    print(f"❌ 作为PEFT模型加载失败: {e}")
+                    raise RuntimeError(f"无法加载LoRA模型: {self.model_path}，LoRA模型必须与正确的基础模型匹配")
+            else:
+                # 常规模型加载流程
+                print("📦 加载为常规模型...")
                 
-                # 使用提供的基础模型路径或检测到的路径
-                actual_base_model = self.base_model_path or detected_base_model
-                
-                # 确认基础模型路径
-                if not os.path.exists(actual_base_model) and "/" not in actual_base_model:
-                    # 可能是相对路径，尝试autodl-tmp中的常见位置
-                    for prefix in ["/root/autodl-tmp/models/", "/root/autodl-tmp/"]:
-                        test_path = f"{prefix}{actual_base_model}"
-                        if os.path.exists(test_path):
-                            actual_base_model = test_path
-                            break
-                
-                print(f"📦 加载基础模型: {actual_base_model}")
-                
-                # 加载基础模型的tokenizer (移除local_files_only限制)
+                # 处理tokenizer (移除严格的local_files_only限制)
                 tokenizer_kwargs = {"trust_remote_code": True}
+                    
+                try:
+                    self.tokenizer = AutoTokenizer.from_pretrained(self.model_path, **tokenizer_kwargs)
+                except Exception as e:
+                    print(f"⚠️ 标准tokenizer加载失败: {e}")
+                    print("尝试使用备用tokenizer选项...")
+                    tokenizer_kwargs["use_fast"] = False
+                    self.tokenizer = AutoTokenizer.from_pretrained(self.model_path, **tokenizer_kwargs)
                 
-                self.tokenizer = AutoTokenizer.from_pretrained(actual_base_model, **tokenizer_kwargs)
+                # 针对Gemma模型的特殊处理
+                model_name_lower = self.model_path.lower()
+                special_kwargs = load_kwargs.copy()
                 
-                # 特殊处理Gemma模型
-                if "gemma" in actual_base_model.lower():
-                    print("🦙 检测到Gemma模型，应用特殊配置...")
-                    load_kwargs.update({
+                if "gemma" in model_name_lower:
+                    print("🔍 检测到Gemma模型，应用特殊配置...")
+                    special_kwargs.update({
                         "attn_implementation": "eager",  # 避免使用flash attention
                         "use_cache": False,  # 禁用缓存机制
                         "_attn_implementation_internal": "eager"
                     })
-                
-                # 加载基础模型
-                base_model = AutoModelForCausalLM.from_pretrained(
-                    actual_base_model,
-                    **load_kwargs
+                    
+                # 加载模型，移除严格的local_files_only限制
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    self.model_path,
+                    **special_kwargs
                 )
-                
-                print(f"🔧 加载LoRA适配器: {self.model_path}")
-                # 加载PEFT模型
-                self.model = PeftModel.from_pretrained(base_model, self.model_path)
-                
-            except Exception as e:
-                print(f"❌ 作为PEFT模型加载失败: {e}")
-                raise RuntimeError(f"无法加载LoRA模型: {self.model_path}，LoRA模型必须与正确的基础模型匹配")
-        else:
-            # 常规模型加载流程
-            print("📦 加载为常规模型...")
-            
-            # 处理tokenizer (移除严格的local_files_only限制)
-            tokenizer_kwargs = {"trust_remote_code": True}
-                
-            try:
-                self.tokenizer = AutoTokenizer.from_pretrained(self.model_path, **tokenizer_kwargs)
-            except Exception as e:
-                print(f"⚠️ 标准tokenizer加载失败: {e}")
-                print("尝试使用备用tokenizer选项...")
-                tokenizer_kwargs["use_fast"] = False
-                self.tokenizer = AutoTokenizer.from_pretrained(self.model_path, **tokenizer_kwargs)
-            
-            # 针对Gemma模型的特殊处理
-            model_name_lower = self.model_path.lower()
-            special_kwargs = load_kwargs.copy()
-            
-            if "gemma" in model_name_lower:
-                print("🔍 检测到Gemma模型，应用特殊配置...")
-                special_kwargs.update({
-                    "attn_implementation": "eager",  # 避免使用flash attention
-                    "use_cache": False,  # 禁用缓存机制
-                    "_attn_implementation_internal": "eager"
-                })
-                
-            # 加载模型，移除严格的local_files_only限制
-            self.model = AutoModelForCausalLM.from_pretrained(
-                self.model_path,
-                **special_kwargs
-            )
         
-        # 确保模型处于评估模式
-        self.model.eval()
-        
-        # 设置pad token
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
+            # 确保模型处于评估模式
+            self.model.eval()
             
-        print(f"✅ 模型加载成功: {self.model_path}")
-        
-    except Exception as e:
-        print(f"❌ 模型加载失败: {self.model_path}")
-        print(f"❌ 错误类型: {type(e).__name__}")
-        print(f"❌ 错误信息: {str(e)}")
-        print(f"❌ 详细错误:")
-        traceback.print_exc()
-        raise RuntimeError(f"无法加载模型 {self.model_path}: {str(e)}")
+            # 设置pad token
+            if self.tokenizer.pad_token is None:
+                self.tokenizer.pad_token = self.tokenizer.eos_token
+                
+            print(f"✅ 模型加载成功: {self.model_path}")
+            
+        except Exception as e:
+            print(f"❌ 模型加载失败: {self.model_path}")
+            print(f"❌ 错误类型: {type(e).__name__}")
+            print(f"❌ 错误信息: {str(e)}")
+            print(f"❌ 详细错误:")
+            traceback.print_exc()
+            raise RuntimeError(f"无法加载模型 {self.model_path}: {str(e)}")
 
     def test_step(self, batch, batch_idx):
         """单个测试步骤"""
