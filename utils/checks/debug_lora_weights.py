@@ -34,5 +34,5 @@ def check_lora_weights(lora_path):
                 print(f"  {key}: {weight.shape}")
 
 if __name__ == "__main__":
-    lora_path = "/root/autodl-tmp/trained_t2l/qwen_to_llama_lora_x"
+    lora_path = "../../../autodl-tmp/trained_t2l/qwen_to_llama_lora_x"
     check_lora_weights(lora_path)

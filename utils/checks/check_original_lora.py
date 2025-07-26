@@ -7,7 +7,7 @@ from safetensors import safe_open
 
 def check_original_lora():
     """检查原始Qwen LoRA权重"""
-    original_lora = "/root/PAW/train_lora/runs/Qwen_Qwen2.5-1.5B/arc-challenge_lora_20250724_014727/final_model/adapter_model.safetensors"
+    original_lora = "../../train_lora/runs/Qwen_Qwen2.5-1.5B/arc-challenge_lora_20250724_014727/final_model/adapter_model.safetensors"
     
     print("原始Qwen LoRA权重形状:")
     with safe_open(original_lora, framework="pt", device="cpu") as f:

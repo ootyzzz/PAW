@@ -194,8 +194,8 @@ class TransferPipeline:
                 if target == 'training_outputs':
                     # 清理训练结果
                     pattern_paths = [
-                        f"/root/PAW/train_lora/runs/{dataset}/{source_name}/*",
-                        f"/root/PAW/train_lora/runs/{dataset}/{target_name}/*"
+                        f"./train_lora/runs/{dataset}/{source_name}/*",
+                        f"./train_lora/runs/{dataset}/{target_name}/*"
                     ]
                     for pattern in pattern_paths:
                         for path in glob.glob(pattern):
@@ -208,7 +208,7 @@ class TransferPipeline:
                 
                 elif target == 'transferred_lora':
                     # 清理迁移的LoRA
-                    pattern = f"/root/autodl-tmp/transferred_lora/{dataset}/{source_name}_to_{target_name}/*"
+                    pattern = f"../autodl-tmp/transferred_lora/{dataset}/{source_name}_to_{target_name}/*"
                     for path in glob.glob(pattern):
                         if self._should_preserve(path, preserve_patterns):
                             continue
@@ -220,9 +220,9 @@ class TransferPipeline:
                 elif target == 'evaluation_results':
                     # 清理评估结果
                     pattern_paths = [
-                        f"/root/PAW/eval/results/*{source_name}*",
-                        f"/root/PAW/eval/results/*{target_name}*",
-                        f"/root/PAW/eval/results/*{dataset}*"
+                        f"./eval/results/*{source_name}*",
+                        f"./eval/results/*{target_name}*",
+                        f"./eval/results/*{dataset}*"
                     ]
                     for pattern in pattern_paths:
                         for path in glob.glob(pattern):
@@ -235,7 +235,7 @@ class TransferPipeline:
                 
                 elif target == 'pipeline_results':
                     # 清理Pipeline结果，但保留总体结果文件的结构
-                    results_dir = Path("/root/PAW/results")
+                    results_dir = Path("./results")
                     if results_dir.exists():
                         # 删除特定实验的备份文件
                         backup_pattern = f"backup_*.json"

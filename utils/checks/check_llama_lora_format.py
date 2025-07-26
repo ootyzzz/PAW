@@ -7,7 +7,7 @@ from safetensors import safe_open
 
 def check_llama_lora_format():
     """检查Llama LoRA权重格式"""
-    llama_lora_path = "/root/PAW/train_lora/runs/Llama-3.2-3B-Instruct/arc-challenge_lora_20250724_140508/final_model/adapter_model.safetensors"
+    llama_lora_path = "../../train_lora/runs/Llama-3.2-3B-Instruct/arc-challenge_lora_20250724_140508/final_model/adapter_model.safetensors"
     
     print("🔍 检查新训练的Llama LoRA权重格式:")
     print(f"文件路径: {llama_lora_path}")

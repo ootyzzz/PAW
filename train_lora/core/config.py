@@ -106,8 +106,8 @@ def create_lightning_config(
     if 'paths' not in config:
         config['paths'] = {}
     
-    # 更新数据路径 - 使用绝对路径，确保从正确位置读取数据
-    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # /root/PAW
+    # 更新数据路径
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     config['data']['train_file'] = os.path.join(project_root, f"data_to_lora/cs/{dataset_name}/{dataset_name}_train_formatted.jsonl")
     config['data']['test_file'] = os.path.join(project_root, test_file_path) if not os.path.isabs(test_file_path) else test_file_path
     config['data']['using_validation_as_test'] = using_validation

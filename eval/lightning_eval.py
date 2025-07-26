@@ -59,7 +59,7 @@ def get_test_file_path(dataset_name: str) -> str:
     possible_paths = [
         f"data_to_lora/cs/{dataset_name}",  # 从PAW根目录运行
         f"../data_to_lora/cs/{dataset_name}",  # 从pipeline目录运行
-        f"/root/PAW/data_to_lora/cs/{dataset_name}",  # 绝对路径
+        f"../../data_to_lora/cs/{dataset_name}",  # 从子目录运行
     ]
     
     for data_dir in possible_paths:

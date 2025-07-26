@@ -3,7 +3,7 @@ from modelscope.hub.snapshot_download import snapshot_download
 
 def main():
     model_id = 'LLM-Research/Llama-3.2-3B-Instruct'
-    download_dir = '/root/autodl-tmp/models/Llama-3.2-3B-Instruct'
+    download_dir = '../../../autodl-tmp/models/Llama-3.2-3B-Instruct'
 
     os.makedirs(download_dir, exist_ok=True)
 

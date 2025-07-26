@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 
 # 设置路径
-lora_adapter_dir = Path("/root/PAW/lora_adapter")
+lora_adapter_dir = Path(__file__).parent
 src_dir = lora_adapter_dir / "src"
 sys.path.insert(0, str(src_dir))
 
@@ -23,7 +23,7 @@ def test_lora_loading():
     print("🔍 测试LoRA权重加载...")
     
     loader = ModelWeightLoader()
-    source_lora_path = "/root/PAW/runs/Qwen_Qwen2.5-1.5B/arc-challenge_lora_20250723_191421/final_model"
+    source_lora_path = "../train_lora/runs/Qwen_Qwen2.5-1.5B/arc-challenge_lora_20250723_191421/final_model"
     
     try:
         lora_weights, config = loader.load_lora_weights(source_lora_path)

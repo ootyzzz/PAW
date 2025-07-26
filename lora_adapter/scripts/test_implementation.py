@@ -21,7 +21,7 @@ def test_lora_loading():
     loader = ModelWeightLoader()
     
     # 测试路径
-    source_lora_path = "/root/PAW/runs/Qwen_Qwen2.5-1.5B/arc-challenge_lora_20250723_191421/final_model"
+    source_lora_path = "../../train_lora/runs/Qwen_Qwen2.5-1.5B/arc-challenge_lora_20250723_191421/final_model"
     
     print("测试LoRA权重加载...")
     try:
@@ -49,8 +49,8 @@ def test_model_analysis():
     loader = ModelWeightLoader()
     
     # 测试路径
-    qwen_path = "/root/autodl-tmp/models/Qwen_Qwen2.5-1.5B"
-    gemma_path = "/root/autodl-tmp/models/gemma-2-2b-it"
+    qwen_path = "../../../autodl-tmp/models/Qwen_Qwen2.5-1.5B"
+    gemma_path = "../../../autodl-tmp/models/gemma-2-2b-it"
     
     print("\\n测试模型结构分析...")
     

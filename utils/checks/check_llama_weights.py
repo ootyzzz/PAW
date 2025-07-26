@@ -7,7 +7,7 @@ from transformers import AutoModelForCausalLM
 
 def check_llama_weights():
     """检查Llama基础模型权重"""
-    model_path = "/root/autodl-tmp/models/Llama-3.2-3B-Instruct"
+    model_path = "../../../autodl-tmp/models/Llama-3.2-3B-Instruct"
     
     print("加载Llama-3.2-3B-Instruct...")
     model = AutoModelForCausalLM.from_pretrained(

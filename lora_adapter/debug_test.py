@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 # 添加正确的路径
-lora_adapter_dir = Path("/root/PAW/lora_adapter")
+lora_adapter_dir = Path(__file__).parent
 src_dir = lora_adapter_dir / "src"
 sys.path.insert(0, str(src_dir))
 
@@ -33,7 +33,7 @@ except Exception as e:
     print(f"❌ 导入lora_x_core失败: {e}")
 
 # 测试LoRA路径
-source_lora_path = "/root/PAW/runs/Qwen_Qwen2.5-1.5B/arc-challenge_lora_20250723_191421/final_model"
+source_lora_path = "../train_lora/runs/Qwen_Qwen2.5-1.5B/arc-challenge_lora_20250723_191421/final_model"
 print(f"\\nLoRA路径存在: {Path(source_lora_path).exists()}")
 if Path(source_lora_path).exists():
     files = list(Path(source_lora_path).glob("*"))

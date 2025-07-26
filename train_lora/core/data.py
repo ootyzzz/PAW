@@ -25,7 +25,7 @@ def get_test_file_path(dataset_name: str) -> Tuple[str, bool]:
         tuple: (文件路径, 是否使用validation)
     """
     # 获取项目根目录的绝对路径
-    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # /root/PAW
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     data_dir = os.path.join(project_root, f"data_to_lora/cs/{dataset_name}")
     test_file = os.path.join(data_dir, f"{dataset_name}_test_formatted.jsonl")
     validation_file = os.path.join(data_dir, f"{dataset_name}_validation_formatted.jsonl")
@@ -96,8 +96,8 @@ class TrainTestDataModule(pl.LightningDataModule):
         self.batch_size = batch_size
         self.test_mode = test_mode
         
-        # 数据文件路径 - 使用绝对路径
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # /root/PAW
+        # 数据文件路径
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         self.data_dir = os.path.join(project_root, f"data_to_lora/cs/{dataset_name}")
         self.train_file = os.path.join(self.data_dir, f"{dataset_name}_train_formatted.jsonl")
         

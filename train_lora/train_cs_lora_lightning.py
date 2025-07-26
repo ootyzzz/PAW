@@ -100,8 +100,8 @@ def main():
                        help="学习率")
     parser.add_argument("--lr2", type=float, default=None,
                        help="第二阶段学习率 (默认和learning_rate相同")
-    parser.add_argument("--base_model", type=str, default="/root/autodl-tmp/models/gemma-2-2b-it",
-                       help="基础模型路径或huggingface模型名 (默认=/root/autodl-tmp/models/gemma-2-2b-it)")
+    parser.add_argument("--base_model", type=str, default="../autodl-tmp/models/gemma-2-2b-it",
+                       help="基础模型路径或huggingface模型名 (默认=../autodl-tmp/models/gemma-2-2b-it)")
     # 为了兼容性，保留但忽略的参数
     parser.add_argument("--track_batches", action="store_true",
                        help="(兼容参数，当前版本忽略)")
