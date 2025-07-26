@@ -52,8 +52,9 @@ class TransferPipeline:
         Returns:
             是否成功
         """
-        # 验证输入
-        if not self._validate_inputs(source_model, target_model, dataset):
+        # 验证输入并获取处理后的路径
+        valid, source_model, target_model = self._validate_inputs(source_model, target_model, dataset)
+        if not valid:
             return False
         
         # 创建实验ID
@@ -106,8 +107,8 @@ class TransferPipeline:
         # 执行管道步骤
         return self._execute_pipeline_steps(results, source_model, target_model, dataset, eval_only)
     
-    def _validate_inputs(self, source_model: str, target_model: str, dataset: str) -> bool:
-        """验证输入参数"""
+    def _validate_inputs(self, source_model: str, target_model: str, dataset: str) -> tuple[bool, str, str]:
+        """验证输入参数，返回(是否有效, 处理后的源模型路径, 处理后的目标模型路径)"""
         # 处理模型路径
         if not source_model.startswith('/'):
             source_model = self.config.get_model_path(source_model)
@@ -117,19 +118,19 @@ class TransferPipeline:
         # 验证模型存在
         if not ModelUtils.check_model_exists(source_model):
             print(f"❌ 源模型不存在: {source_model}")
-            return False
+            return False, source_model, target_model
         if not ModelUtils.check_model_exists(target_model):
             print(f"❌ 目标模型不存在: {target_model}")
-            return False
+            return False, source_model, target_model
         
         # 验证数据集
         supported_datasets = self.config.get('training.datasets', [])
         if dataset not in supported_datasets:
             print(f"❌ 不支持的数据集: {dataset}")
             print(f"✅ 支持的数据集: {', '.join(supported_datasets)}")
-            return False
+            return False, source_model, target_model
         
-        return True
+        return True, source_model, target_model
     
     def _handle_existing_experiment(self, existing: Dict, source_model: str, target_model: str, dataset: str) -> str:
         """处理已存在的实验，返回用户选择的操作"""

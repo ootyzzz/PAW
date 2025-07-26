@@ -49,7 +49,7 @@ class LoRATransfer:
         output = self.runner.run_command(
             cmd,
             f"迁移 LoRA ({source_name} → {target_name})",
-            cwd=os.path.dirname(self.config.get('paths.transfer_script'))
+            cwd="."  # 在PAW根目录执行
         )
         
         if output is None:
@@ -74,7 +74,7 @@ class LoRATransfer:
     def _build_transfer_command(self, source_lora_path: str, source_model: str, 
                                target_model: str, output_dir: str) -> str:
         """构建迁移命令"""
-        transfer_script = os.path.basename(self.config.get('paths.transfer_script'))
+        transfer_script = self.config.get('paths.transfer_script')
         similarity_threshold = self.config.get('transfer.similarity_threshold')
         
         cmd = f"python {transfer_script} " \

@@ -1,105 +1,104 @@
 # LoRA Transfer Pipeline
 
-Automated LoRA training and transfer pipeline for cross-model LoRA weight migration and performance evaluation.
+Automated pipeline for training LoRA adapters and transferring weights between language models with performance evaluation.
 
 ## Quick Start
 
-### Basic Usage
 ```bash
-# Run complete A->B transfer experiment
-python transfer_pipeline.py \
-  --source_model Qwen-Qwen2.5-0.5B \
+# Run complete transfer experiment
+python pipeline/transfer_pipeline.py \
+  --source_model gemma-2-2b-it \
   --target_model Qwen_Qwen2.5-1.5B \
   --dataset arc-challenge
 
-# Quick test mode
-python transfer_pipeline.py --quick_test
+# Evaluation only mode
+python pipeline/transfer_pipeline.py --eval_only
 
-# Evaluation only (skip training)
-python transfer_pipeline.py \
-  --source_model Qwen-Qwen2.5-0.5B \
-  --target_model Qwen_Qwen2.5-1.5B \
-  --dataset arc-challenge \
-  --eval_only
+# Quick test with minimal steps
+python pipeline/transfer_pipeline.py --quick_test
 ```
 
 ## Configuration
 
-Configuration files are located in `config/`:
-- `pipeline_config.yaml` - Standard configuration
-- `quick_test_config.yaml` - Fast testing with reduced parameters
+All paths and parameters are configured in `pipeline/config/pipeline_config.yaml`. The pipeline uses relative paths for portability across different machines.
 
-### Supported Models
-```
-Available models in /root/autodl-tmp/models/:
-- Qwen-Qwen2.5-0.5B
-- Qwen_Qwen2.5-1.5B
-- Llama-3.2-3B-Instruct
+### Key Configuration Sections
+
+**Paths**: Model directories, script locations, output paths
+**Training**: Batch size, max steps, learning rate, datasets
+**Evaluation**: Sample ratio, batch size
+**Transfer**: Similarity threshold for weight mapping
+
+## Supported Models
+
+The pipeline works with models in `../autodl-tmp/models/`:
 - gemma-2-2b-it
-```
+- Qwen_Qwen2.5-1.5B
+- Qwen-Qwen2.5-0.5B
+- Llama-3.2-3B-Instruct
 
-### Supported Datasets
+## Supported Datasets
+
 - arc-challenge
 - arc-easy
 - piqa
-- boolq
+- hellaswag
+- winogrande
 
 ## Pipeline Steps
 
-1. **Train Source LoRA**: Train LoRA adapter on source model
-2. **Transfer LoRA**: Migrate LoRA weights to target model
-3. **Evaluate Target Base**: Evaluate target model baseline performance
-4. **Evaluate Transferred LoRA**: Evaluate migrated LoRA performance
-5. **Train Target LoRA**: Train native LoRA on target model (for comparison)
-6. **Evaluate Source Base**: Evaluate source model baseline performance
+1. Evaluate source model baseline
+2. Train LoRA adapter on source model
+3. Evaluate target model baseline
+4. Transfer LoRA weights to target model
+5. Evaluate transferred LoRA
+6. Train native LoRA on target model (optional)
 
 ## Directory Structure
 
 ```
-runs/                              # Training results
-├── {dataset}/
-│   └── {model}/
-│       └── {timestamp}/
-│           └── final_model/       # Final LoRA model
+pipeline/
+├── config/pipeline_config.yaml    # Main configuration
+├── core/                          # Core pipeline components
+├── transfer_pipeline.py           # Main pipeline script
+└── README.md
 
-transferred_lora/                  # Transfer results
-├── {dataset}/
-│   └── {source}_to_{target}/
-│       └── {timestamp}/
+runs/{dataset}/{model}/{timestamp}/ # Training outputs
+└── final_model/                   # Trained LoRA adapters
 
-results/                           # Experiment records
+../autodl-tmp/transferred_lora/    # Transfer results
+└── {dataset}/{source}_to_{target}/
+
+results/                           # Experiment results
 ├── experiment_results.csv         # Structured data
-└── experiment_summary.md          # Human-readable report
+└── experiment_summary.md          # Summary report
 ```
 
-## Results Management
+## Command Line Options
 
-Results are automatically saved in two formats:
-- **CSV**: Machine-readable structured data
-- **Markdown**: Human-readable summary with tables
-
-View results:
 ```bash
-cat results/experiment_summary.md
+--source_model MODEL     # Source model name
+--target_model MODEL     # Target model name  
+--dataset DATASET        # Dataset to use
+--eval_only             # Skip training, evaluate only
+--quick_test            # Use quick test configuration
+--config CONFIG_FILE    # Custom configuration file
 ```
 
-## Configuration Files
+## Results
 
-### Standard Configuration (`pipeline_config.yaml`)
-- Default batch size: 8
-- Default max steps: 1000
-- Full evaluation (100% samples)
+Results are saved in CSV format for data analysis and Markdown format for human review. The pipeline automatically tracks:
+- Base model accuracies
+- LoRA training results
+- Transfer performance
+- Comparison metrics
 
-### Quick Test Configuration (`quick_test_config.yaml`)
-- Reduced batch size: 4
-- Reduced max steps: 20
-- Sample evaluation (5% samples)
+## Environment Requirements
 
-## Error Handling
+- PyTorch Lightning
+- SwanLab for experiment tracking
+- Transformers library
+- Standard ML evaluation tools
 
-The pipeline includes:
-- Automatic detection of existing training results
-- Resume capability for interrupted experiments
-- Comprehensive error logging and recovery
-- Data type cleaning for pandas compatibility
+Working directory should be the PAW root directory when running the pipeline.
 

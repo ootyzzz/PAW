@@ -34,7 +34,7 @@ class ModelTrainer:
             print(f"\nTraining {model_name} + LoRA (dataset: {dataset})")
         
         # Check for existing training results
-        existing_path = self._check_existing_training(model_name, dataset)
+        existing_path = self._check_existing_training(model_path, dataset)
         if existing_path:
             if self.verbose:
                 print(f"状态: 发现已有训练结果: {existing_path}")
@@ -49,7 +49,7 @@ class ModelTrainer:
         output = self.runner.run_command(
             cmd, 
             f"训练 {model_name} LoRA",
-            cwd=os.path.dirname(self.config.get('paths.train_script'))
+            cwd="."  # 在PAW根目录执行
         )
         
         if output is None:
@@ -58,64 +58,72 @@ class ModelTrainer:
         # 解析输出获取准确率
         accuracy = OutputParser.parse_training_accuracy(output)
         
-        # 查找生成的模型路径
-        final_model_path = self._find_latest_model(model_name, dataset)
+        # 查找生成的模型路径 - 使用模型的短名称
+        model_short_name = os.path.basename(model_path.rstrip('/'))
+        final_model_path = self._find_latest_model(model_short_name, dataset)
         
         if final_model_path:
             return final_model_path, accuracy, f"训练完成，模型保存至: {final_model_path}"
         else:
             return None, accuracy, "训练执行完成，但未找到输出模型"
     
-    def _check_existing_training(self, model_name: str, dataset: str) -> Optional[str]:
+    def _check_existing_training(self, model_path: str, dataset: str) -> Optional[str]:
         """检查是否已有相同配置的训练结果
         
         目前只比对batch_size和max_steps - 可扩展到更多参数
         """
-        runs_dir = os.path.join(self.config.get('paths.runs_dir'), dataset, model_name)
+        model_short_name = os.path.basename(model_path.rstrip('/'))
         
-        if not os.path.exists(runs_dir):
-            return None
+        # 检查新格式路径: runs/{dataset}/{model_name}/
+        new_format_dir = os.path.join("runs", dataset, model_short_name)
+        # 检查旧格式路径: train_lora/runs/{dataset}/{model_name}/
+        old_format_dir = os.path.join(self.config.get('paths.runs_dir'), dataset, model_short_name)
         
         # 获取当前配置
         current_batch_size = self.config.get('training.default_batch_size')
         current_max_steps = self.config.get('training.default_max_steps')
         
-        # 查找所有训练结果目录
-        existing_runs = [d for d in os.listdir(runs_dir) 
-                        if os.path.isdir(os.path.join(runs_dir, d))]
-        
-        if not existing_runs:
-            return None
-        
-        # 检查每个训练结果，比对配置
-        for run_dir in sorted(existing_runs, reverse=True):  # 从最新开始
-            run_path = os.path.join(runs_dir, run_dir)
-            final_model_path = os.path.join(run_path, "final_model")
-            
-            # 检查final_model是否存在
-            if not os.path.exists(final_model_path):
+        # 优先检查新格式，然后检查旧格式
+        for runs_dir in [new_format_dir, old_format_dir]:
+            if not os.path.exists(runs_dir):
                 continue
-                
-            # 查找配置文件进行比对
-            config_files = [
-                os.path.join(run_path, "hparams.yaml"),      # Lightning默认参数文件
-                os.path.join(run_path, "trainer_state.json"), # Transformers训练状态
-                os.path.join(run_path, "training_args.json"), # 训练参数
-                os.path.join(run_path, "config.json"),       # 通用配置
-            ]
             
-            for config_file in config_files:
-                if os.path.exists(config_file):
-                    try:
-                        if self._config_matches(config_file, current_batch_size, current_max_steps):
+            # 查找所有训练结果目录
+            existing_runs = [d for d in os.listdir(runs_dir) 
+                            if os.path.isdir(os.path.join(runs_dir, d))]
+            
+            if not existing_runs:
+                continue
+            
+            # 检查每个训练结果，比对配置
+            for run_dir in sorted(existing_runs, reverse=True):  # 从最新开始
+                run_path = os.path.join(runs_dir, run_dir)
+                final_model_path = os.path.join(run_path, "final_model")
+                
+                # 检查final_model是否存在
+                if not os.path.exists(final_model_path):
+                    continue
+                    
+                # 查找配置文件进行比对
+                config_files = [
+                    os.path.join(run_path, "hparams.yaml"),      # Lightning默认参数文件
+                    os.path.join(run_path, "trainer_state.json"), # Transformers训练状态
+                    os.path.join(run_path, "training_args.json"), # 训练参数
+                    os.path.join(run_path, "config.json"),       # 通用配置
+                ]
+                
+                for config_file in config_files:
+                    if os.path.exists(config_file):
+                        try:
+                            if self._config_matches(config_file, current_batch_size, current_max_steps):
+                                if self.verbose:
+                                    print(f"   发现匹配配置的训练结果: {final_model_path}")
+                                    print(f"   配置文件: {os.path.basename(config_file)}")
+                                return final_model_path
+                        except Exception as e:
                             if self.verbose:
-                                print(f"   发现匹配配置的训练结果: {final_model_path}")
-                                print(f"   配置文件: {os.path.basename(config_file)}")
-                            return final_model_path
-                    except Exception as e:
-                        if self.verbose:
-                            print(f"   配置文件读取失败 {config_file}: {e}")
-                        continue
+                                print(f"   配置文件读取失败 {config_file}: {e}")
+                            continue
         
         return None
     
@@ -207,7 +215,7 @@ class ModelTrainer:
     
     def _build_train_command(self, model_path: str, dataset: str) -> str:
         """构建训练命令"""
-        train_script = os.path.basename(self.config.get('paths.train_script'))
+        train_script = self.config.get('paths.train_script')
         
         cmd = f"TQDM_DISABLE=1 python {train_script} " \
               f"--dataset {dataset} " \
@@ -219,22 +227,27 @@ class ModelTrainer:
     
     def _find_latest_model(self, model_name: str, dataset: str) -> Optional[str]:
         """查找最新生成的模型路径"""
-        runs_dir = os.path.join(self.config.get('paths.runs_dir'), dataset, model_name)
+        # 检查新格式路径: runs/{dataset}/{model_name}/
+        new_format_dir = os.path.join("runs", dataset, model_name)
+        # 检查旧格式路径: train_lora/runs/{dataset}/{model_name}/
+        old_format_dir = os.path.join(self.config.get('paths.runs_dir'), dataset, model_name)
         
-        if not os.path.exists(runs_dir):
-            return None
-        
-        runs = [d for d in os.listdir(runs_dir) 
-               if os.path.isdir(os.path.join(runs_dir, d))]
-        
-        if not runs:
-            return None
-        
-        latest_run = sorted(runs)[-1]
-        final_model_path = os.path.join(runs_dir, latest_run, "final_model")
-        
-        if os.path.exists(final_model_path):
-            return final_model_path
+        # 优先检查新格式
+        for runs_dir in [new_format_dir, old_format_dir]:
+            if not os.path.exists(runs_dir):
+                continue
+            
+            runs = [d for d in os.listdir(runs_dir) 
+                   if os.path.isdir(os.path.join(runs_dir, d))]
+            
+            if not runs:
+                continue
+            
+            latest_run = sorted(runs)[-1]
+            final_model_path = os.path.join(runs_dir, latest_run, "final_model")
+            
+            if os.path.exists(final_model_path):
+                return final_model_path
         
         return None
     

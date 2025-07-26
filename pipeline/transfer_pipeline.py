@@ -35,9 +35,13 @@ import argparse
 import warnings
 
 # 添加pipeline模块到路径
-pipeline_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pipeline')
-if pipeline_root not in sys.path:
-    sys.path.insert(0, pipeline_root)
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(script_dir)  # PAW目录
+sys.path.insert(0, script_dir)  # 添加pipeline目录
+sys.path.insert(0, project_root)  # 添加PAW根目录
+
+# 确保工作目录是PAW根目录
+os.chdir(project_root)
 
 # 修复MKL线程层冲突 - 必须在导入numpy/pandas之前设置
 os.environ['MKL_SERVICE_FORCE_INTEL'] = '1'
@@ -125,20 +129,7 @@ def main():
         print(f"Eval Only: {args.eval_only}")
         print("")
     
-    # 处理模型路径
-    if not args.source_model.startswith('/'):
-        args.source_model = pipeline.config.get_model_path(args.source_model)
-    if not args.target_model.startswith('/'):
-        args.target_model = pipeline.config.get_model_path(args.target_model)
-    
-    # 验证模型存在
-    if not os.path.exists(args.source_model):
-        print(f"❌ 源模型不存在: {args.source_model}")
-        return False
-    if not os.path.exists(args.target_model):
-        print(f"❌ 目标模型不存在: {args.target_model}")
-        return False
-    
+    # 验证模型存在 - 不在这里处理路径，让pipeline内部处理
     # 验证数据集
     supported_datasets = pipeline.config.get('training.datasets', [])
     if args.dataset not in supported_datasets:

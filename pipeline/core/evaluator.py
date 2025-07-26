@@ -41,7 +41,8 @@ class ModelEvaluator:
         # Execute evaluation
         output = self.runner.run_command(
             cmd,
-            f"Evaluate {model_name} {model_type}"
+            f"Evaluate {model_name} {model_type}",
+            cwd="."  # 在PAW根目录执行
         )
         
         if output is None:
@@ -64,7 +65,7 @@ class ModelEvaluator:
                   f"--sample_ratio {sample_ratio} " \
                   f"--base_model {base_model}"
         else:
-            # 评估基础模型
+            # 评估基础模型 - 使用完整的模型路径
             cmd = f"python {eval_script} " \
                   f"--models_list {base_model} " \
                   f"--dataset {dataset} " \
