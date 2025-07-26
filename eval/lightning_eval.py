@@ -133,18 +133,30 @@ class LightningModelEvaluator(pl.LightningModule):
         # 检查是否是本地路径还是Hugging Face模型ID
         is_local_path = os.path.exists(self.model_path)
         
-        # 模型加载参数
-        load_kwargs = {
-            "torch_dtype": torch.float16 if torch.cuda.is_available() else torch.float32,
-            "trust_remote_code": True,
-            "use_cache": True,
-            "device_map": "auto" if torch.cuda.is_available() else None,
-        }
+        print(f"🔍 模型路径检查: {self.model_path}")
+        print(f"🔍 是否为本地路径: {is_local_path}")
         
-        # 检查是否是LoRA模型
-        config_path = Path(self.model_path) / "adapter_config.json"
+        # 检查模型路径是否存在
+        if not is_local_path:
+            print(f"❌ 模型路径不存在: {self.model_path}")
+            raise FileNotFoundError(f"模型路径不存在: {self.model_path}")
         
-        if config_path.exists():
+        try:
+            # 模型加载参数
+            load_kwargs = {
+                "torch_dtype": torch.float16 if torch.cuda.is_available() else torch.float32,
+                "trust_remote_code": True,
+                "use_cache": True,
+                "device_map": "auto" if torch.cuda.is_available() else None,
+            }
+            
+            print(f"🔍 模型加载参数: {load_kwargs}")
+            
+            # 检查是否是LoRA模型
+            config_path = Path(self.model_path) / "adapter_config.json"
+            print(f"🔍 检查LoRA配置文件: {config_path} (存在: {config_path.exists()})")
+            
+            if config_path.exists():
             # LoRA模型加载流程
             print("🔧 检测到LoRA模型，使用PEFT加载...")
             try:
@@ -232,72 +244,103 @@ class LightningModelEvaluator(pl.LightningModule):
         # 设置pad token
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
+            
+        print(f"✅ 模型加载成功: {self.model_path}")
+        
+    except Exception as e:
+        print(f"❌ 模型加载失败: {self.model_path}")
+        print(f"❌ 错误类型: {type(e).__name__}")
+        print(f"❌ 错误信息: {str(e)}")
+        print(f"❌ 详细错误:")
+        traceback.print_exc()
+        raise RuntimeError(f"无法加载模型 {self.model_path}: {str(e)}")
 
     def test_step(self, batch, batch_idx):
         """单个测试步骤"""
-        # 计算损失
-        loss = self._compute_loss(batch)
-        # 计算准确率
-        accuracy = self._compute_accuracy(batch)
-        perplexity = torch.exp(loss)
-        
-        batch_size = len(batch)
-        
-        # 记录指标
-        self.log('test/loss', loss, batch_size=batch_size)
-        self.log('test/accuracy', accuracy, batch_size=batch_size)
-        self.log('test/perplexity', perplexity, batch_size=batch_size)
-        
-        return {
-            'loss': loss,
-            'accuracy': accuracy,
-            'perplexity': perplexity,
-            'batch_size': batch_size
-        }
+        try:
+            # 计算损失
+            loss = self._compute_loss(batch)
+            # 计算准确率
+            accuracy = self._compute_accuracy(batch)
+            perplexity = torch.exp(loss)
+            
+            batch_size = len(batch)
+            
+            # 记录指标
+            self.log('test/loss', loss, batch_size=batch_size)
+            self.log('test/accuracy', accuracy, batch_size=batch_size)
+            self.log('test/perplexity', perplexity, batch_size=batch_size)
+            
+            return {
+                'loss': loss,
+                'accuracy': accuracy,
+                'perplexity': perplexity,
+                'batch_size': batch_size
+            }
+        except Exception as e:
+            print(f"❌ test_step失败 (batch_idx={batch_idx}): {e}")
+            print(f"❌ batch内容: {batch}")
+            traceback.print_exc()
+            # 返回默认值避免训练中断
+            return {
+                'loss': torch.tensor(float('inf')),
+                'accuracy': torch.tensor(0.0),
+                'perplexity': torch.tensor(float('inf')),
+                'batch_size': len(batch) if batch else 1
+            }
         
     def _compute_loss(self, batch):
         """计算损失"""
-        inputs = []
-        labels = []
-        
-        for item in batch:
-            # 处理多选题格式
-            if 'input' in item and 'options' in item:
-                question = item['input']
-                options = item['options']
-                target = item.get('target', 'A')
-                
-                # 格式化问题、选项和答案
-                text = f"Question: {question}\n"
-                for option in options:
-                    text += f"{option}\n"
-                text += f"Answer: {target}"
-            else:
-                # 备选：使用任何文本字段
-                text = item.get('text', str(item))
+        try:
+            inputs = []
+            labels = []
             
-            # Tokenize
-            encoding = self.tokenizer(
-                text,
-                truncation=True,
-                padding='max_length',
-                max_length=self.max_length,
-                return_tensors='pt'
-            )
-            inputs.append(encoding['input_ids'].squeeze())
-            labels.append(encoding['input_ids'].squeeze())
+            for item in batch:
+                # 处理多选题格式
+                if 'input' in item and 'options' in item:
+                    question = item['input']
+                    options = item['options']
+                    target = item.get('target', 'A')
+                    
+                    # 格式化问题、选项和答案
+                    text = f"Question: {question}\n"
+                    for option in options:
+                        text += f"{option}\n"
+                    text += f"Answer: {target}"
+                else:
+                    # 备选：使用任何文本字段
+                    text = item.get('text', str(item))
+                
+                # Tokenize
+                encoding = self.tokenizer(
+                    text,
+                    truncation=True,
+                    padding='max_length',
+                    max_length=self.max_length,
+                    return_tensors='pt'
+                )
+                inputs.append(encoding['input_ids'].squeeze())
+                labels.append(encoding['input_ids'].squeeze())
 
-        if inputs:
-            input_ids = torch.stack(inputs).to(self.device)
-            attention_mask = torch.ones_like(input_ids).to(self.device)
-            labels = torch.stack(labels).to(self.device)
-        else:
-            return torch.tensor(0.0)
-        
-        # 计算损失
-        with torch.no_grad():
-            outputs = self.model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
-        return outputs.loss
+            if inputs:
+                input_ids = torch.stack(inputs).to(self.device)
+                attention_mask = torch.ones_like(input_ids).to(self.device)
+                labels = torch.stack(labels).to(self.device)
+            else:
+                return torch.tensor(0.0)
+            
+            # 计算损失
+            with torch.no_grad():
+                outputs = self.model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
+            return outputs.loss
+            
+        except Exception as e:
+            print(f"❌ _compute_loss失败: {e}")
+            print(f"❌ batch大小: {len(batch) if batch else 'None'}")
+            if batch:
+                print(f"❌ 第一个样本: {batch[0] if len(batch) > 0 else 'Empty'}")
+            traceback.print_exc()
+            return torch.tensor(float('inf'))
 
     def _compute_accuracy(self, batch):
         """计算准确率"""
@@ -638,6 +681,10 @@ def evaluate_models(
             
         except Exception as e:
             print(f"❌ 评估失败: {e}")
+            print(f"❌ 模型路径: {model_path}")
+            print(f"❌ 模型名称: {model_name}")
+            print(f"❌ 数据集: {dataset_name}")
+            print(f"❌ 详细错误信息:")
             traceback.print_exc()
             results[model_name] = {
                 dataset_name: {"error": str(e)}
