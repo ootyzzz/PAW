@@ -85,8 +85,6 @@ def main():
     
     # Quick test mode: use preset configuration
     if args.quick_test:
-        print("Quick Test Mode: 0.5B → 1.5B")
-        
         # Create pipeline instance (using quick test configuration)
         pipeline = TransferPipeline(quick_test=True)
         
@@ -97,12 +95,6 @@ def main():
             args.target_model = pipeline.config.get('recommended_models.target')
         if not args.dataset:
             args.dataset = pipeline.config.get('recommended_models.dataset')
-            
-        print(f"Source Model: {args.source_model}")
-        print(f"Target Model: {args.target_model}")
-        print(f"Dataset: {args.dataset}")
-        print(f"Training Steps: 20, Evaluation Ratio: 5%")
-        print("")
     else:
         # Create pipeline instance (using normal configuration)
         pipeline = TransferPipeline(args.config)

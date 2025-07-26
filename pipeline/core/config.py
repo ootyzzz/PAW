@@ -142,3 +142,4 @@ class QuickTestConfig(PipelineConfig):
         # Use quick_test_config.yaml instead of hardcoded values
         quick_config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'quick_test_config.yaml')
         super().__init__(quick_config_path)
+        self.is_quick_test = True

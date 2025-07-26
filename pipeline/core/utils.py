@@ -130,6 +130,7 @@ class CommandRunner:
         
         # Handle progress bars - only show latest progress
         if re.search(r'\d+%\|[█▉▊▋▌▍▎▏ ]*\|', line) or ('it/s' in line and ('Epoch' in line or 'step' in line)):
+            # Normal progress handling
             if current_progress_line:
                 # Clear previous progress line
                 print('\r' + ' ' * len(current_progress_line) + '\r', end='', flush=True)
@@ -151,7 +152,8 @@ class CommandRunner:
                 if any(useful in line for useful in [
                     'accuracy', 'loss', 'test_result', 'final_model',
                     'Lightning训练', '模型加载', '可训练参数', 'Training',
-                    'Model loaded', 'Trainable parameters', 'ERROR', 'WARNING'
+                    'Model loaded', 'Trainable parameters', 'ERROR', 'WARNING',
+                    '│'  # Include table lines
                 ]):
                     print(f"   {line}")
 

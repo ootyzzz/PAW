@@ -55,6 +55,9 @@ class LoRATransfer:
         if output is None:
             return None
         
+        if self.verbose:
+            print(f"✅ 迁移 LoRA ({source_name} → {target_name}) 完成")
+        
         return output_dir
     
     def _create_output_dir(self, source_name: str, target_name: str, dataset: str) -> str:
