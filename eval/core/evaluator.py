@@ -137,12 +137,12 @@ class LightningModelEvaluator(pl.LightningModule):
             raise FileNotFoundError(f"模型路径不存在: {self.model_path}")
         
         try:
-            # 模型加载参数
+            # 模型加载参数 - 强制使用单GPU避免Lightning冲突
             load_kwargs = {
                 "torch_dtype": torch.float16 if torch.cuda.is_available() else torch.float32,
                 "trust_remote_code": True,
                 "use_cache": True,
-                "device_map": "auto" if torch.cuda.is_available() else None,
+                "device_map": None,  # 禁用自动设备映射，让Lightning控制
             }
             
             print(f"🔍 模型加载参数: {load_kwargs}")
@@ -274,6 +274,12 @@ class LightningModelEvaluator(pl.LightningModule):
         
             # 确保模型处于评估模式
             self.model.eval()
+            
+            # 手动将模型移动到第一个GPU（如果可用）
+            if torch.cuda.is_available():
+                device = torch.device("cuda:0")
+                self.model = self.model.to(device)
+                print(f"🔧 模型已移动到设备: {device}")
             
             # 设置pad token
             if self.tokenizer.pad_token is None:
