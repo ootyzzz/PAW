@@ -8,6 +8,10 @@ import psutil
 import gc
 
 
+# 全局模型缓存，防止重复加载
+_MODEL_CACHE = {}
+
+
 def log_memory_usage(stage=""):
     """记录内存使用情况"""
     try:
@@ -59,12 +63,40 @@ class LightningModelEvaluator(pl.LightningModule):
         self.model = None
         self.tokenizer = None
         
+        # 创建缓存键
+        self.cache_key = f"{self.model_path}_{self.base_model_path or 'none'}"
+        
         # 加载模型和tokenizer
         self._load_model()
+    
+    def setup(self, stage=None):
+        """Lightning生命周期方法 - 确保模型已加载"""
+        if not self._model_loaded:
+            print(f"🔄 Lightning setup阶段重新加载模型...")
+            self._load_model()
+    
+    def on_test_start(self):
+        """测试开始时的钩子"""
+        if not self._model_loaded:
+            print(f"🔄 测试开始时重新加载模型...")
+            self._load_model()
         
     @detailed_exception_handler
     def _load_model(self):
         """加载模型和tokenizer"""
+        # 创建缓存键
+        cache_key = f"{self.model_path}_{self.base_model_path or 'none'}"
+        
+        # 检查全局缓存
+        if cache_key in _MODEL_CACHE:
+            print(f"✅ 从缓存加载模型: {self.model_path}")
+            cached_data = _MODEL_CACHE[cache_key]
+            self.model = cached_data['model']
+            self.tokenizer = cached_data['tokenizer']
+            self._model_loaded = True
+            log_memory_usage("缓存加载后")
+            return
+        
         # 检查是否已经加载过模型
         if self._model_loaded and self.model is not None and self.tokenizer is not None:
             print(f"✅ 模型已加载，跳过重复加载: {self.model_path}")
@@ -248,6 +280,13 @@ class LightningModelEvaluator(pl.LightningModule):
             
             # 设置加载完成标志
             self._model_loaded = True
+            
+            # 保存到全局缓存
+            _MODEL_CACHE[cache_key] = {
+                'model': self.model,
+                'tokenizer': self.tokenizer
+            }
+            print(f"💾 模型已缓存: {cache_key}")
                 
             print(f"✅ 模型加载成功: {self.model_path}")
             
