@@ -1,0 +1,70 @@
+# LoRA Transfer Pipeline - Main Configuration
+# 主要配置文件
+
+# 路径配置
+paths:
+  models_dir: '../models'
+  train_script: './train_lora/train_cs_lora_lightning.py'
+  eval_script: './eval/lightning_eval.py'
+  transfer_script: './lora_adapter/scripts/transfer_lora_x.py'
+  runs_dir: './train_lora/runs'
+  transferred_lora_dir: '../transferred_lora'
+  results_dir: './results'
+
+# 训练配置
+training:
+  default_batch_size: 2
+  default_max_steps: 1000
+  default_lr: '1e-5'
+  # 要运行的数据集列表 - 不需要的可以注释掉
+  datasets:
+    # - 'piqa'
+    - 'arc-challenge'
+    # - 'arc-easy'
+    # - 'hellaswag'
+    # - 'winogrande'
+
+# 评估配置
+evaluation:
+  sample_ratio: 1.0
+  default_batch_size: 8
+
+# 迁移配置
+transfer:
+  similarity_threshold: 0.0001
+
+# 结果配置
+results:
+  csv_file: 'experiment_results.csv'
+  markdown_file: 'experiment_summary.md'
+
+# 默认实验配置 - 如果不提供命令行参数则使用这些值
+default_experiment:
+  source_model: 'Meta-Llama-3-8B-Instruct'
+  target_model: 'Qwen2.5-7B-Instruct'
+  dataset: 'arc-challenge'
+  eval_only: false
+
+# 通用配置
+general:
+  timestamp: null
+
+# 实验管理配置
+experiment_management:
+  # 当发现已存在实验时的默认行为
+  # 选项: 'prompt', 'continue', 'delete', 'abort'
+  existing_experiment_action: 'prompt'
+  
+  # 删除现有输出时要清理的内容
+  cleanup_targets:
+    - 'training_outputs'    # 训练结果 (train_lora/runs/*)
+    - 'transferred_lora'    # 迁移的LoRA (autodl-tmp/transferred_lora/*)
+    - 'evaluation_results'  # 评估结果 (eval/results/*)
+    - 'pipeline_results'    # Pipeline结果 (results/*)
+  
+  # 要保留的文件模式 (这些文件不会被删除)
+  preserve_patterns:
+    - '*.yaml'             # 配置文件
+    - '*.py'               # Python脚本
+    - 'README.*'           # 说明文档
+    - '.git*'              # Git相关文件

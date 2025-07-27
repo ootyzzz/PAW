@@ -4,6 +4,40 @@ Lightning评估模块
 """
 
 from .config import *
+import psutil
+import gc
+
+
+def log_memory_usage(stage=""):
+    """记录内存使用情况"""
+    try:
+        if torch.cuda.is_available():
+            gpu_allocated = torch.cuda.memory_allocated() / 1024**3
+            gpu_reserved = torch.cuda.memory_reserved() / 1024**3
+            gpu_total = torch.cuda.get_device_properties(0).total_memory / 1024**3
+            print(f"🔍 [{stage}] GPU内存: {gpu_allocated:.2f}GB / {gpu_reserved:.2f}GB / {gpu_total:.2f}GB")
+        
+        ram_usage = psutil.virtual_memory()
+        print(f"🔍 [{stage}] RAM使用: {ram_usage.used/1024**3:.2f}GB / {ram_usage.total/1024**3:.2f}GB ({ram_usage.percent:.1f}%)")
+    except Exception as e:
+        print(f"⚠️ 内存监控失败: {e}")
+
+
+def detailed_exception_handler(func):
+    """详细异常处理装饰器"""
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            print(f"❌ 函数 {func.__name__} 发生异常:")
+            print(f"❌ 异常类型: {type(e).__name__}")
+            print(f"❌ 异常信息: {str(e)}")
+            print(f"❌ 详细traceback:")
+            traceback.print_exc()
+            print(f"❌ 系统信息:")
+            log_memory_usage("异常发生时")
+            raise
+    return wrapper
 
 
 class LightningModelEvaluator(pl.LightningModule):
@@ -23,19 +57,40 @@ class LightningModelEvaluator(pl.LightningModule):
         # 加载模型和tokenizer
         self._load_model()
         
+    @detailed_exception_handler
     def _load_model(self):
         """加载模型和tokenizer"""
-        print(f"📦 加载模型: {self.model_path}")
+        print(f"📦 开始加载模型: {self.model_path}")
+        log_memory_usage("模型加载前")
         
         # 检查是否是本地路径还是Hugging Face模型ID
         is_local_path = os.path.exists(self.model_path)
         
         print(f"🔍 模型路径检查: {self.model_path}")
+        print(f"🔍 绝对路径: {os.path.abspath(self.model_path)}")
         print(f"🔍 是否为本地路径: {is_local_path}")
+        
+        # 如果是本地路径，检查目录内容
+        if is_local_path:
+            try:
+                files = os.listdir(self.model_path)
+                print(f"🔍 模型目录内容: {files[:10]}...")  # 只显示前10个文件
+                
+                # 检查关键文件
+                key_files = ['config.json', 'pytorch_model.bin', 'model.safetensors', 'tokenizer.json']
+                for key_file in key_files:
+                    if key_file in files:
+                        print(f"✅ 找到关键文件: {key_file}")
+                    else:
+                        print(f"⚠️ 未找到文件: {key_file}")
+            except Exception as e:
+                print(f"⚠️ 无法读取模型目录: {e}")
         
         # 检查模型路径是否存在
         if not is_local_path:
             print(f"❌ 模型路径不存在: {self.model_path}")
+            print(f"❌ 当前工作目录: {os.getcwd()}")
+            print(f"❌ 尝试的绝对路径: {os.path.abspath(self.model_path)}")
             raise FileNotFoundError(f"模型路径不存在: {self.model_path}")
         
         try:
@@ -57,12 +112,15 @@ class LightningModelEvaluator(pl.LightningModule):
                 # LoRA模型加载流程
                 print("🔧 检测到LoRA模型，使用PEFT加载...")
                 try:
+                    print("🔍 步骤1: 加载PEFT配置...")
                     # 加载PEFT配置获取基础模型信息
                     peft_config = PeftConfig.from_pretrained(self.model_path)
                     detected_base_model = peft_config.base_model_name_or_path
+                    print(f"🔍 检测到的基础模型: {detected_base_model}")
                     
                     # 使用提供的基础模型路径或检测到的路径
                     actual_base_model = self.base_model_path or detected_base_model
+                    print(f"🔍 实际使用的基础模型路径: {actual_base_model}")
                     
                     # 确认基础模型路径
                     if not os.path.exists(actual_base_model) and "/" not in actual_base_model:
@@ -71,14 +129,18 @@ class LightningModelEvaluator(pl.LightningModule):
                             test_path = f"{prefix}{actual_base_model}"
                             if os.path.exists(test_path):
                                 actual_base_model = test_path
+                                print(f"🔍 找到基础模型: {actual_base_model}")
                                 break
                     
-                    print(f"📦 加载基础模型: {actual_base_model}")
+                    print(f"🔍 步骤2: 加载tokenizer...")
+                    log_memory_usage("tokenizer加载前")
                     
                     # 加载基础模型的tokenizer (移除local_files_only限制)
                     tokenizer_kwargs = {"trust_remote_code": True}
                     
                     self.tokenizer = AutoTokenizer.from_pretrained(actual_base_model, **tokenizer_kwargs)
+                    print(f"✅ tokenizer加载成功")
+                    log_memory_usage("tokenizer加载后")
                     
                     # 特殊处理Gemma模型
                     if "gemma" in actual_base_model.lower():
@@ -89,15 +151,26 @@ class LightningModelEvaluator(pl.LightningModule):
                             "_attn_implementation_internal": "eager"
                         })
                     
+                    print(f"🔍 步骤3: 加载基础模型...")
+                    print(f"📦 基础模型路径: {actual_base_model}")
+                    print(f"📦 加载参数: {load_kwargs}")
+                    log_memory_usage("基础模型加载前")
+                    
                     # 加载基础模型
                     base_model = AutoModelForCausalLM.from_pretrained(
                         actual_base_model,
                         **load_kwargs
                     )
+                    print(f"✅ 基础模型加载成功")
+                    log_memory_usage("基础模型加载后")
                     
-                    print(f"🔧 加载LoRA适配器: {self.model_path}")
+                    print(f"🔍 步骤4: 加载LoRA适配器...")
+                    print(f"🔧 LoRA路径: {self.model_path}")
+                    
                     # 加载PEFT模型
                     self.model = PeftModel.from_pretrained(base_model, self.model_path)
+                    print(f"✅ LoRA适配器加载成功")
+                    log_memory_usage("LoRA加载后")
                     
                 except Exception as e:
                     print(f"❌ 作为PEFT模型加载失败: {e}")
@@ -106,34 +179,55 @@ class LightningModelEvaluator(pl.LightningModule):
                 # 常规模型加载流程
                 print("📦 加载为常规模型...")
                 
+                print("🔍 步骤1: 加载tokenizer...")
+                log_memory_usage("tokenizer加载前")
+                
                 # 处理tokenizer (移除严格的local_files_only限制)
                 tokenizer_kwargs = {"trust_remote_code": True}
                     
                 try:
                     self.tokenizer = AutoTokenizer.from_pretrained(self.model_path, **tokenizer_kwargs)
+                    print("✅ tokenizer加载成功")
                 except Exception as e:
                     print(f"⚠️ 标准tokenizer加载失败: {e}")
-                    print("尝试使用备用tokenizer选项...")
+                    print("🔍 尝试使用备用tokenizer选项...")
                     tokenizer_kwargs["use_fast"] = False
                     self.tokenizer = AutoTokenizer.from_pretrained(self.model_path, **tokenizer_kwargs)
+                    print("✅ 备用tokenizer加载成功")
                 
-                # 针对Gemma模型的特殊处理
+                log_memory_usage("tokenizer加载后")
+                
+                print("🔍 步骤2: 准备模型加载参数...")
+                # 针对特殊模型的处理
                 model_name_lower = self.model_path.lower()
                 special_kwargs = load_kwargs.copy()
                 
                 if "gemma" in model_name_lower:
-                    print("🔍 检测到Gemma模型，应用特殊配置...")
+                    print("🦙 检测到Gemma模型，应用特殊配置...")
                     special_kwargs.update({
                         "attn_implementation": "eager",  # 避免使用flash attention
                         "use_cache": False,  # 禁用缓存机制
                         "_attn_implementation_internal": "eager"
                     })
+                elif "llama" in model_name_lower:
+                    print("🦙 检测到Llama模型，应用特殊配置...")
+                    # Llama模型可能需要特殊处理
+                    special_kwargs.update({
+                        "use_cache": True,  # Llama通常可以使用缓存
+                    })
+                
+                print(f"🔍 最终加载参数: {special_kwargs}")
+                
+                print("🔍 步骤3: 加载模型...")
+                log_memory_usage("模型加载前")
                     
                 # 加载模型，移除严格的local_files_only限制
                 self.model = AutoModelForCausalLM.from_pretrained(
                     self.model_path,
                     **special_kwargs
                 )
+                print("✅ 模型加载成功")
+                log_memory_usage("模型加载后")
         
             # 确保模型处于评估模式
             self.model.eval()
@@ -155,11 +249,34 @@ class LightningModelEvaluator(pl.LightningModule):
     def test_step(self, batch, batch_idx):
         """单个测试步骤"""
         try:
+            print(f"🔍 test_step开始 - batch_idx: {batch_idx}, batch_size: {len(batch) if batch else 0}")
+            log_memory_usage(f"test_step_{batch_idx}_开始")
+            
+            # 验证batch内容
+            if not batch:
+                print(f"⚠️ 空batch，跳过处理")
+                return {
+                    'loss': torch.tensor(0.0),
+                    'accuracy': torch.tensor(0.0),
+                    'perplexity': torch.tensor(1.0),
+                    'batch_size': 0
+                }
+            
+            print(f"🔍 batch样本示例: {batch[0] if len(batch) > 0 else 'None'}")
+            
             # 计算损失
+            print(f"🔍 开始计算损失...")
             loss = self._compute_loss(batch)
+            print(f"🔍 损失计算完成: {loss}")
+            
             # 计算准确率
+            print(f"🔍 开始计算准确率...")
             accuracy = self._compute_accuracy(batch)
+            print(f"🔍 准确率计算完成: {accuracy}")
+            
+            # 计算困惑度
             perplexity = torch.exp(loss)
+            print(f"🔍 困惑度计算完成: {perplexity}")
             
             batch_size = len(batch)
             
@@ -167,6 +284,9 @@ class LightningModelEvaluator(pl.LightningModule):
             self.log('test/loss', loss, batch_size=batch_size)
             self.log('test/accuracy', accuracy, batch_size=batch_size)
             self.log('test/perplexity', perplexity, batch_size=batch_size)
+            
+            log_memory_usage(f"test_step_{batch_idx}_完成")
+            print(f"✅ test_step完成 - batch_idx: {batch_idx}")
             
             return {
                 'loss': loss,
@@ -176,8 +296,14 @@ class LightningModelEvaluator(pl.LightningModule):
             }
         except Exception as e:
             print(f"❌ test_step失败 (batch_idx={batch_idx}): {e}")
-            print(f"❌ batch内容: {batch}")
+            print(f"❌ 异常类型: {type(e).__name__}")
+            print(f"❌ batch大小: {len(batch) if batch else 'None'}")
+            if batch and len(batch) > 0:
+                print(f"❌ 第一个样本: {batch[0]}")
+            print(f"❌ 详细traceback:")
             traceback.print_exc()
+            log_memory_usage(f"test_step_{batch_idx}_异常")
+            
             # 返回默认值避免训练中断
             return {
                 'loss': torch.tensor(float('inf')),

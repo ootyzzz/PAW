@@ -60,8 +60,14 @@ def evaluate_models(
             model_name = Path(model_path).parent.name
             
         try:
+            print(f"🔍 开始初始化评估器...")
+            print(f"🔍 模型路径: {model_path}")
+            print(f"🔍 基础模型路径: {base_model_path}")
+            print(f"🔍 模型名称: {model_name}")
+            
             # 初始化Lightning评估模块
             evaluator = LightningModelEvaluator(model_path, base_model_path)
+            print(f"✅ 评估器初始化成功")
             
             # 创建Trainer (无需checkpoint) - 针对Gemma模型优化
             trainer_kwargs = {
@@ -130,13 +136,43 @@ def evaluate_models(
             
         except Exception as e:
             print(f"❌ 评估失败: {e}")
+            print(f"❌ 异常类型: {type(e).__name__}")
             print(f"❌ 模型路径: {model_path}")
             print(f"❌ 模型名称: {model_name}")
             print(f"❌ 数据集: {dataset_name}")
+            print(f"❌ 基础模型路径: {base_model_path}")
+            print(f"❌ 当前工作目录: {os.getcwd()}")
+            
+            # 检查模型路径是否存在
+            if os.path.exists(model_path):
+                print(f"✅ 模型路径存在")
+                try:
+                    files = os.listdir(model_path)
+                    print(f"🔍 模型目录文件: {files[:5]}...")
+                except Exception as list_error:
+                    print(f"⚠️ 无法列出模型目录: {list_error}")
+            else:
+                print(f"❌ 模型路径不存在")
+            
+            # 内存状态
+            try:
+                if torch.cuda.is_available():
+                    gpu_allocated = torch.cuda.memory_allocated() / 1024**3
+                    gpu_reserved = torch.cuda.memory_reserved() / 1024**3
+                    print(f"🔍 GPU内存: {gpu_allocated:.2f}GB / {gpu_reserved:.2f}GB")
+            except Exception as mem_error:
+                print(f"⚠️ 内存检查失败: {mem_error}")
+            
             print(f"❌ 详细错误信息:")
             traceback.print_exc()
+            
             results[model_name] = {
-                dataset_name: {"error": str(e)}
+                dataset_name: {
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "model_path": model_path,
+                    "model_exists": os.path.exists(model_path)
+                }
             }
     
     # 计算总用时
