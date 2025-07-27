@@ -5,16 +5,16 @@
 ### 基本用法
 ```bash
 # 单个模型评估
-python eval/lightning_eval_new.py --models_list /root/autodl-tmp/models/Qwen_Qwen2.5-1.5B --dataset arc-challenge
+python eval/lightning_eval.py --models_list /root/autodl-tmp/models/Qwen_Qwen2.5-1.5B --dataset arc-challenge
 
 # 多个模型评估
-python eval/lightning_eval_new.py --models_list /root/autodl-tmp/models/Qwen_Qwen2.5-1.5B /root/autodl-tmp/models/gemma-2-2b-it --dataset arc-challenge
+python eval/lightning_eval.py --models_list /root/autodl-tmp/models/Qwen_Qwen2.5-1.5B /root/autodl-tmp/models/gemma-2-2b-it --dataset arc-challenge
 
 # 快速测试（使用1%数据）
-python eval/lightning_eval_new.py --models_list /root/autodl-tmp/models/Qwen_Qwen2.5-1.5B --dataset arc-challenge --sample_ratio 0.01
+python eval/lightning_eval.py --models_list /root/autodl-tmp/models/Qwen_Qwen2.5-1.5B --dataset arc-challenge --sample_ratio 0.01
 
 # LoRA模型评估
-python eval/lightning_eval_new.py --models_list /root/PAW/runs/arc-challenge/Qwen_Qwen2.5-1.5B/181133/final_model --base_model /root/autodl-tmp/models/Qwen_Qwen2.5-1.5B --dataset arc-challenge
+python eval/lightning_eval.py --models_list /root/PAW/runs/arc-challenge/Qwen_Qwen2.5-1.5B/181133/final_model --base_model /root/autodl-tmp/models/Qwen_Qwen2.5-1.5B --dataset arc-challenge
 ```
 
 ### 环境要求
@@ -24,7 +24,7 @@ conda activate cuda312
 
 ## 工具概述
 
-`lightning_eval_new.py` 是基于PyTorch Lightning的模型评估工具，支持批量评估多个模型，包括基础模型和LoRA微调模型。
+`lightning_eval.py` 是基于PyTorch Lightning的模型评估工具，支持批量评估多个模型，包括基础模型和LoRA微调模型。
 
 ## 参数说明
 
@@ -72,7 +72,7 @@ PAW/eval/
 │   ├── evaluator.py               # Lightning评估器
 │   ├── model_loader.py            # 模型加载工具
 │   └── batch_eval.py              # 批量评估逻辑
-├── lightning_eval_new.py          # 主入口脚本
+├── lightning_eval.py          # 主入口脚本
 ├── results/                       # 评估结果目录
 └── README.md                      # 本文档
 ```

@@ -5,7 +5,7 @@ Lightning风格的快速评估脚本 - 基于PyTorch Lightning优化的评估方
 使用Lightning的数据加载和并行处理机制，显著提高评估速度
 
 使用示例:
-python eval/lightning_eval_new.py --models_list \\
+python eval/lightning_eval.py --models_list \\
     /root/autodl-tmp/models/Qwen_Qwen2.5-1.5B \\
     /root/autodl-tmp/models/gemma-2-2b-it \\
     /root/PAW/runs/Qwen_Qwen2.5-1.5B/arc-challenge_lora_20250723_191421/final_model \\
