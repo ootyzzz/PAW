@@ -54,12 +54,22 @@ class LightningModelEvaluator(pl.LightningModule):
         # 创建模型名称用于报告
         self.model_name = Path(model_path).name
         
+        # 模型加载状态标志
+        self._model_loaded = False
+        self.model = None
+        self.tokenizer = None
+        
         # 加载模型和tokenizer
         self._load_model()
         
     @detailed_exception_handler
     def _load_model(self):
         """加载模型和tokenizer"""
+        # 检查是否已经加载过模型
+        if self._model_loaded and self.model is not None and self.tokenizer is not None:
+            print(f"✅ 模型已加载，跳过重复加载: {self.model_path}")
+            return
+        
         print(f"📦 开始加载模型: {self.model_path}")
         log_memory_usage("模型加载前")
         
@@ -235,6 +245,9 @@ class LightningModelEvaluator(pl.LightningModule):
             # 设置pad token
             if self.tokenizer.pad_token is None:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
+            
+            # 设置加载完成标志
+            self._model_loaded = True
                 
             print(f"✅ 模型加载成功: {self.model_path}")
             
