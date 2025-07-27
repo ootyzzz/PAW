@@ -10,6 +10,7 @@ import gc
 
 # 全局模型缓存，防止重复加载
 _MODEL_CACHE = {}
+_LOADING_LOCK = {}  # 加载锁，防止并发加载
 
 
 def log_memory_usage(stage=""):

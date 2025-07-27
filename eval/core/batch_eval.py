@@ -72,7 +72,7 @@ def evaluate_models(
             # 创建Trainer (无需checkpoint) - 针对Gemma模型优化
             trainer_kwargs = {
                 "accelerator": 'auto',
-                "devices": 'auto',
+                "devices": 1,  # 强制使用单GPU，避免多进程问题
                 "precision": '16-mixed' if torch.cuda.is_available() else 32,
                 "logger": False,
                 "enable_checkpointing": False,  # 评估不需要检查点
@@ -82,6 +82,7 @@ def evaluate_models(
                 "num_sanity_val_steps": 0,  # 避免sanity检查
                 "inference_mode": True,  # 使用推理模式
                 "benchmark": False,  # 关闭基准测试
+                "strategy": "auto",  # 使用自动策略，但限制为单设备
             }
             
             # 如果是Gemma模型，使用更保守的设置
