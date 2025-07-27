@@ -399,9 +399,11 @@ class LightningModelEvaluator(pl.LightningModule):
                 labels.append(encoding['input_ids'].squeeze())
 
             if inputs:
-                input_ids = torch.stack(inputs).to(self.device)
-                attention_mask = torch.ones_like(input_ids).to(self.device)
-                labels = torch.stack(labels).to(self.device)
+                # 确保所有tensor都在模型的主设备上
+                model_device = next(self.model.parameters()).device
+                input_ids = torch.stack(inputs).to(model_device)
+                attention_mask = torch.ones_like(input_ids).to(model_device)
+                labels = torch.stack(labels).to(model_device)
             else:
                 return torch.tensor(0.0)
             
@@ -445,13 +447,16 @@ class LightningModelEvaluator(pl.LightningModule):
                     prompt += "Answer:"
                     
                     # Tokenize
+                    model_device = next(self.model.parameters()).device
                     inputs = self.tokenizer(
                         prompt,
                         return_tensors='pt',
                         truncation=True,
                         max_length=self.max_length,
                         padding=True
-                    ).to(self.device)
+                    )
+                    # 将输入移动到模型设备
+                    inputs = {k: v.to(model_device) for k, v in inputs.items()}
                     
                     # Gemma模型特殊处理
                     model_name_lower = self.model_path.lower()
