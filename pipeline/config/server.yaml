@@ -48,8 +48,8 @@ lora:
     - "v_proj"
     
     # 标准配置 - 完整注意力层 (取消注释以启用)
-    # - "k_proj"
-    # - "o_proj"
+    - "k_proj"
+    - "o_proj"
     
     # 完整配置 - 包含FFN层 (取消注释以启用)
     # - "gate_proj"
