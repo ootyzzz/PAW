@@ -153,7 +153,8 @@ def main():
             max_steps=args.max_steps, 
             save_steps=args.save_steps, 
             learning_rate=args.lr, 
-            learning_rate_stage2=args.lr2
+            learning_rate_stage2=args.lr2,
+            external_config_path=args.config if args.config != "./config/lightning_config.yaml" else None
         )
         
         # 注入 base model 路径

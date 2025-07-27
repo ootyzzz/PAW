@@ -59,7 +59,7 @@ class ModelTrainer:
         accuracy = OutputParser.parse_training_accuracy(output)
         
         # 查找生成的模型路径 - 使用模型的短名称
-        model_short_name = os.path.basename(model_path.rstrip('/'))
+        model_short_name = ModelUtils.get_model_short_name(model_path)
         final_model_path = self._find_latest_model(model_short_name, dataset)
         
         if final_model_path:
@@ -72,7 +72,7 @@ class ModelTrainer:
         
         目前只比对batch_size和max_steps - 可扩展到更多参数
         """
-        model_short_name = os.path.basename(model_path.rstrip('/'))
+        model_short_name = ModelUtils.get_model_short_name(model_path)
         
         # 检查新格式路径: runs/{dataset}/{model_name}/
         new_format_dir = os.path.join("runs", dataset, model_short_name)
@@ -106,6 +106,7 @@ class ModelTrainer:
                     
                 # 查找配置文件进行比对
                 config_files = [
+                    os.path.join(run_path, "config.yaml"),       # PAW项目配置文件
                     os.path.join(run_path, "hparams.yaml"),      # Lightning默认参数文件
                     os.path.join(run_path, "trainer_state.json"), # Transformers训练状态
                     os.path.join(run_path, "training_args.json"), # 训练参数
@@ -144,22 +145,30 @@ class ModelTrainer:
                 with open(config_file, 'r', encoding='utf-8') as f:
                     config = json.load(f)
             
-            # 查找batch_size的各种可能键名
-            batch_size_keys = ['batch_size', 'per_device_train_batch_size', 'train_batch_size', 'bs']
+            # 查找batch_size的各种可能键名和路径
             found_batch_size = None
+            batch_size_paths = [
+                'batch_size', 'per_device_train_batch_size', 'train_batch_size', 'bs',
+                'training.batch_size', 'experiment.batch_size'
+            ]
             
-            for key in batch_size_keys:
-                if key in config:
-                    found_batch_size = config[key]
+            for path in batch_size_paths:
+                value = self._get_nested_value(config, path)
+                if value is not None:
+                    found_batch_size = value
                     break
             
-            # 查找max_steps的各种可能键名
-            max_steps_keys = ['max_steps', 'total_steps', 'training_steps']
+            # 查找max_steps的各种可能键名和路径
             found_max_steps = None
+            max_steps_paths = [
+                'max_steps', 'total_steps', 'training_steps',
+                'training.max_steps', 'experiment.max_steps'
+            ]
             
-            for key in max_steps_keys:
-                if key in config:
-                    found_max_steps = config[key]
+            for path in max_steps_paths:
+                value = self._get_nested_value(config, path)
+                if value is not None:
+                    found_max_steps = value
                     break
             
             # 比对配置
@@ -181,8 +190,9 @@ class ModelTrainer:
         """从已有训练结果中读取准确率"""
         import json
         import os
+        import yaml
         
-        # 查找可能包含准确率的文件
+        # 1. 首先查找标准的结果文件
         result_files = [
             os.path.join(os.path.dirname(model_path), "trainer_state.json"),
             os.path.join(os.path.dirname(model_path), "training_results.json"),
@@ -205,23 +215,143 @@ class ModelTrainer:
                         if key in data:
                             accuracy = data[key]
                             if isinstance(accuracy, (int, float)) and 0 <= accuracy <= 1:
+                                if self.verbose:
+                                    print(f"   从{os.path.basename(result_file)}读取准确率: {accuracy:.4f}")
                                 return float(accuracy)
                             
                 except (json.JSONDecodeError, KeyError, ValueError):
                     continue
         
-        # 如果没有找到，返回None，但至少我们尝试过了
-        return None
+        # 2. 查找tensorboard的hparams.yaml文件
+        hparams_file = os.path.join(os.path.dirname(model_path), "tensorboard_logs", "hparams.yaml")
+        if os.path.exists(hparams_file):
+            try:
+                with open(hparams_file, 'r') as f:
+                    data = yaml.safe_load(f)
+                # hparams通常不包含准确率，但我们检查一下
+                if 'accuracy' in data:
+                    accuracy = data['accuracy']
+                    if isinstance(accuracy, (int, float)) and 0 <= accuracy <= 1:
+                        if self.verbose:
+                            print(f"   从hparams.yaml读取准确率: {accuracy:.4f}")
+                        return float(accuracy)
+            except Exception:
+                pass
+        
+        # 3. 尝试从swanlab元数据中读取（虽然通常不包含准确率）
+        swanlab_dir = os.path.join(os.path.dirname(model_path), "swanlab_logs")
+        if os.path.exists(swanlab_dir):
+            for run_dir in os.listdir(swanlab_dir):
+                metadata_file = os.path.join(swanlab_dir, run_dir, "files", "swanlab-metadata.json")
+                if os.path.exists(metadata_file):
+                    try:
+                        with open(metadata_file, 'r') as f:
+                            data = json.load(f)
+                        # 检查是否有准确率信息
+                        if 'accuracy' in data:
+                            accuracy = data['accuracy']
+                            if isinstance(accuracy, (int, float)) and 0 <= accuracy <= 1:
+                                if self.verbose:
+                                    print(f"   从swanlab元数据读取准确率: {accuracy:.4f}")
+                                return float(accuracy)
+                    except Exception:
+                        continue
+        
+        # 4. 如果都没找到，尝试运行一个快速评估来获取准确率
+        if self.verbose:
+            print(f"   未找到已保存的准确率，尝试快速评估...")
+        
+        return self._quick_evaluate_model(model_path)
+    
+    def _quick_evaluate_model(self, model_path: str) -> Optional[float]:
+        """对已有模型进行快速评估以获取准确率"""
+        try:
+            # 从模型路径推断数据集和基础模型
+            path_parts = model_path.split(os.sep)
+            dataset = None
+            model_name = None
+            
+            # 解析路径：runs/arc-challenge/gemma-2-2b-it/211804/final_model
+            for i, part in enumerate(path_parts):
+                if part == "runs" and i + 2 < len(path_parts):
+                    dataset = path_parts[i + 1]
+                    model_name = path_parts[i + 2]
+                    break
+            
+            if not dataset or not model_name:
+                if self.verbose:
+                    print(f"   无法从路径解析数据集和模型名: {model_path}")
+                return None
+            
+            # 构建基础模型路径
+            base_model_path = os.path.join(self.config.get('paths.models_dir'), model_name)
+            
+            # 构建评估命令
+            eval_script = self.config.get('paths.eval_script')
+            sample_ratio = self.config.get('evaluation.sample_ratio', 0.05)
+            
+            cmd = f"python {eval_script} " \
+                  f"--models_list {model_path} " \
+                  f"--dataset {dataset} " \
+                  f"--sample_ratio {sample_ratio} " \
+                  f"--base_model {base_model_path}"
+            
+            if self.verbose:
+                print(f"   运行快速评估: {cmd}")
+            
+            # 运行评估
+            output = self.runner.run_command(
+                cmd,
+                f"快速评估 {model_name}",
+                cwd="."
+            )
+            
+            if output:
+                # 解析评估输出获取准确率
+                accuracy = OutputParser.parse_evaluation_accuracy(output)
+                if accuracy is not None:
+                    if self.verbose:
+                        print(f"   快速评估获得准确率: {accuracy:.4f}")
+                    return accuracy
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"   快速评估失败: {e}")
+        
+        # 如果快速评估也失败了，返回一个合理的默认值或None
+        if self.verbose:
+            print(f"   无法获取准确率，将使用默认值")
+        return None  # 或者返回一个合理的默认值，比如 0.5
     
     def _build_train_command(self, model_path: str, dataset: str) -> str:
         """构建训练命令"""
         train_script = self.config.get('paths.train_script')
         
+        # 基础命令
         cmd = f"TQDM_DISABLE=1 python {train_script} " \
               f"--dataset {dataset} " \
               f"--base_model {model_path} " \
               f"--bs {self.config.get('training.default_batch_size')} " \
               f"--max_steps {self.config.get('training.default_max_steps')}"
+        
+        # 如果配置中有LoRA设置，添加配置文件参数
+        if self.config.has_lora_config():
+            config_file = self.config.get_config_file_path()
+            if config_file and os.path.exists(config_file):
+                cmd += f" --config {config_file}"
+                if self.verbose:
+                    print(f"📝 使用LoRA配置文件: {config_file}")
+                    lora_config = self.config.get('lora', {})
+                    print(f"   - 目标层: {lora_config.get('target_modules', ['q_proj', 'v_proj'])}")
+                    print(f"   - 秩 (r): {lora_config.get('r', 16)}")
+                    print(f"   - Alpha: {lora_config.get('lora_alpha', 32)}")
+        else:
+            # 如果没有LoRA配置，使用默认的lightning配置文件
+            default_config = "./train_lora/config/lightning_config.yaml"
+            if os.path.exists(default_config):
+                cmd += f" --config {default_config}"
+                if self.verbose:
+                    print(f"📝 使用默认LoRA配置文件: {default_config}")
         
         return cmd
     
@@ -243,7 +373,24 @@ class ModelTrainer:
             if not runs:
                 continue
             
-            latest_run = sorted(runs)[-1]
+            # 按文件修改时间排序，确保获取最新的训练结果
+            def get_mtime(run_name):
+                run_path = os.path.join(runs_dir, run_name)
+                try:
+                    return os.path.getmtime(run_path)
+                except:
+                    # 如果获取修改时间失败，尝试解析时间戳
+                    if len(run_name) == 6 and run_name.isdigit():
+                        # 6位数字格式：HHMMSS
+                        return float(run_name)
+                    elif len(run_name) >= 15 and '_' in run_name:
+                        # 完整格式：YYYYMMDD_HHMMSS
+                        timestamp_part = run_name.split('_')[-1]
+                        if timestamp_part.isdigit():
+                            return float(timestamp_part)
+                    return 0
+            
+            latest_run = sorted(runs, key=get_mtime)[-1]
             final_model_path = os.path.join(runs_dir, latest_run, "final_model")
             
             if os.path.exists(final_model_path):
@@ -264,3 +411,16 @@ class ModelTrainer:
             return True, existing_path
         
         return False, None
+    
+    def _get_nested_value(self, config: dict, path: str):
+        """从嵌套字典中获取值，支持点分隔的路径"""
+        keys = path.split('.')
+        current = config
+        
+        for key in keys:
+            if isinstance(current, dict) and key in current:
+                current = current[key]
+            else:
+                return None
+        
+        return current

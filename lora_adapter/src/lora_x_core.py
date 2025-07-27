@@ -108,7 +108,10 @@ class LoRAXCore:
         transfer_stats = {
             'total_layers': 0,
             'transferred_layers': 0, 
-            'skipped_layers': []
+            'skipped_layers': [],
+            'skipped_reasons': {},
+            'similarity_stats': [],
+            'layer_types': {}
         }
         
         # 预计算所有相似度（并行化）
@@ -121,19 +124,35 @@ class LoRAXCore:
                 continue
 
             transfer_stats['total_layers'] += 1
+            
+            # 分析层类型
+            layer_type = self._classify_layer_type(lora_key)
+            if layer_type not in transfer_stats['layer_types']:
+                transfer_stats['layer_types'][layer_type] = {'total': 0, 'transferred': 0}
+            transfer_stats['layer_types'][layer_type]['total'] += 1
 
             # 找到对应的基础权重
             base_key = self._map_lora_to_base_key(lora_key)
 
             if base_key not in source_base_weights or base_key not in target_base_weights:
-                logger.warning(f"跳过层 {lora_key}: 找不到对应的基础权重")
+                reason = "找不到对应的基础权重"
+                logger.warning(f"跳过层 {lora_key}: {reason}")
                 transfer_stats['skipped_layers'].append(lora_key)
+                transfer_stats['skipped_reasons'][lora_key] = reason
                 continue
 
             # 获取权重
             source_base = source_base_weights[base_key]
             target_base = target_base_weights[base_key]
             lora_weight = source_lora[lora_key]
+
+            # 使用预计算的相似度
+            similarity = similarities.get(base_key, 0.0)
+            transfer_stats['similarity_stats'].append({
+                'layer': lora_key,
+                'similarity': similarity,
+                'layer_type': layer_type
+            })
 
             # 检查维度兼容性
             if not self._check_dimension_compatibility(source_base, target_base, lora_weight):
@@ -142,24 +161,28 @@ class LoRAXCore:
                     projected_weight = self._frobenius_projection(lora_weight, source_base, target_base)
                     transferred_lora[lora_key] = projected_weight
                     transfer_stats['transferred_layers'] += 1
-                    logger.info(f"成功迁移层 {lora_key} (Frobenius投影)")
+                    transfer_stats['layer_types'][layer_type]['transferred'] += 1
+                    logger.info(f"成功迁移层 {lora_key} (Frobenius投影, 相似性={similarity:.3f})")
                 except Exception as e:
-                    logger.warning(f"Frobenius投影失败: {e}")
+                    reason = f"Frobenius投影失败: {e}"
+                    logger.warning(reason)
                     transfer_stats['skipped_layers'].append(lora_key)
+                    transfer_stats['skipped_reasons'][lora_key] = reason
                 continue
 
-            # 使用预计算的相似度
-            similarity = similarities.get(base_key, 0.0)
             # 相似性过滤
             if similarity < self.similarity_threshold:
-                logger.info(f"跳过层 {lora_key}: 相似性过低 ({similarity:.3f} < {self.similarity_threshold})")
+                reason = f"相似性过低 ({similarity:.3f} < {self.similarity_threshold})"
+                logger.info(f"跳过层 {lora_key}: {reason}")
                 transfer_stats['skipped_layers'].append(lora_key)
+                transfer_stats['skipped_reasons'][lora_key] = reason
                 continue
 
             # 执行迁移
             transferred_weight = self._transfer_single_layer(lora_weight, source_base, target_base)
             transferred_lora[lora_key] = transferred_weight
             transfer_stats['transferred_layers'] += 1
+            transfer_stats['layer_types'][layer_type]['transferred'] += 1
             logger.info(f"成功迁移层 {lora_key}: 相似性={similarity:.3f}")
         
         self._log_transfer_stats(transfer_stats)
@@ -234,6 +257,29 @@ class LoRAXCore:
                 raise e
         
         return projected_weight
+    
+    def _classify_layer_type(self, lora_key: str) -> str:
+        """分类LoRA层类型"""
+        if 'q_proj' in lora_key:
+            return 'query'
+        elif 'k_proj' in lora_key:
+            return 'key'
+        elif 'v_proj' in lora_key:
+            return 'value'
+        elif 'o_proj' in lora_key:
+            return 'output'
+        elif 'gate_proj' in lora_key:
+            return 'gate'
+        elif 'up_proj' in lora_key:
+            return 'up'
+        elif 'down_proj' in lora_key:
+            return 'down'
+        elif 'mlp' in lora_key:
+            return 'mlp'
+        elif 'attn' in lora_key:
+            return 'attention'
+        else:
+            return 'other'
     
     def _map_lora_to_base_key(self, lora_key: str) -> str:
         """映射LoRA权重名到基础模型权重名"""
@@ -345,6 +391,29 @@ class LoRAXCore:
 
     def _log_transfer_stats(self, stats: Dict):
         """记录迁移统计信息"""
+        print(f"\n{'='*60}")
+        print("LoRA-X 迁移统计报告")
+        print("="*60)
+        print(f"📊 总层数: {stats['total_layers']}")
+        print(f"✅ 成功迁移: {stats['transferred_layers']}")
+        print(f"❌ 跳过层数: {len(stats['skipped_layers'])}")
+        
+        if stats['transferred_layers'] > 0:
+            success_rate = (stats['transferred_layers'] / stats['total_layers']) * 100
+            print(f"📈 迁移成功率: {success_rate:.1f}%")
+        else:
+            print(f"⚠️  警告: 没有成功迁移任何层!")
+        
+        if stats['skipped_layers']:
+            print(f"\n🔍 跳过的层详情:")
+            for i, layer in enumerate(stats['skipped_layers'][:10]):  # 显示前10个
+                print(f"  {i+1}. {layer}")
+            if len(stats['skipped_layers']) > 10:
+                print(f"  ... 还有 {len(stats['skipped_layers']) - 10} 个层被跳过")
+        
+        print("="*60)
+        
+        # 同时记录到logger
         logger.info(f"LoRA-X迁移完成:")
         logger.info(f"  总层数: {stats['total_layers']}")
         logger.info(f"  成功迁移: {stats['transferred_layers']}")

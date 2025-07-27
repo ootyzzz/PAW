@@ -160,14 +160,41 @@ def run_lightning_training(
         if not os.path.exists(model_path):
             model_path = config.get('model', {}).get('name', 'Qwen/Qwen2.5-0.5B')
         
-        lora_config = {
-            'r': config.get('lora', {}).get('r', 16),
-            'lora_alpha': config.get('lora', {}).get('alpha', 32),
-            'target_modules': config.get('lora', {}).get('target_modules', ["q_proj", "v_proj"]),
-            'lora_dropout': config.get('lora', {}).get('dropout', 0.1),
-            'bias': config.get('lora', {}).get('bias', "none"),
-            'task_type': TaskType.CAUSAL_LM
-        }
+        # 从配置文件读取LoRA配置，支持预设模板
+        lora_section = config.get('lora', {})
+        
+        # 检查是否使用预设配置
+        preset_name = lora_section.get('use_preset', None)
+        if preset_name and 'presets' in lora_section and preset_name in lora_section['presets']:
+            print(f"🎯 使用LoRA预设配置: {preset_name}")
+            preset_config = lora_section['presets'][preset_name]
+            lora_config = {
+                'r': preset_config.get('r', 16),
+                'lora_alpha': preset_config.get('lora_alpha', 32),
+                'target_modules': preset_config.get('target_modules', ["q_proj", "v_proj"]),
+                'lora_dropout': lora_section.get('lora_dropout', 0.1),
+                'bias': lora_section.get('bias', "none"),
+                'task_type': TaskType.CAUSAL_LM
+            }
+        else:
+            # 使用直接配置
+            lora_config = {
+                'r': lora_section.get('r', 16),
+                'lora_alpha': lora_section.get('lora_alpha', 32),
+                'target_modules': lora_section.get('target_modules', ["q_proj", "v_proj"]),
+                'lora_dropout': lora_section.get('lora_dropout', 0.1),
+                'bias': lora_section.get('bias', "none"),
+                'task_type': TaskType.CAUSAL_LM
+            }
+        
+        # 打印LoRA配置信息
+        print(f"📊 LoRA配置:")
+        print(f"  - 秩 (r): {lora_config['r']}")
+        print(f"  - Alpha: {lora_config['lora_alpha']}")
+        print(f"  - Dropout: {lora_config['lora_dropout']}")
+        print(f"  - 偏置: {lora_config['bias']}")
+        print(f"  - 目标层: {lora_config['target_modules']}")
+        print(f"  - 目标层数量: {len(lora_config['target_modules'])}")
         
         lightning_module = LoRALightningModule(
             model_path=model_path,

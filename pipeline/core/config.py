@@ -128,6 +128,20 @@ class PipelineConfig:
         
         return os.path.join(self.get('paths.models_dir'), model_name)
     
+    def has_lora_config(self) -> bool:
+        """检查配置中是否包含LoRA设置"""
+        lora_config = self.get('lora', {})
+        return bool(lora_config and (
+            'target_modules' in lora_config or 
+            'r' in lora_config or 
+            'lora_alpha' in lora_config or
+            'presets' in lora_config
+        ))
+    
+    def get_config_file_path(self) -> str:
+        """获取当前配置文件的路径"""
+        return self.config_path
+    
     def save(self):
         """保存配置到文件"""
         with open(self.config_path, 'w', encoding='utf-8') as f:

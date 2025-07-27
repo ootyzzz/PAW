@@ -13,7 +13,7 @@ paths:
 
 # 训练配置
 training:
-  default_batch_size: 4
+  default_batch_size: 2
   default_max_steps: 200
   default_lr: '1e-5'
   # 要运行的数据集列表 - 不需要的可以注释掉
@@ -68,3 +68,43 @@ experiment_management:
     - '*.py'               # Python脚本
     - 'README.*'           # 说明文档
     - '.git*'              # Git相关文件
+
+# LoRA配置
+lora:
+  # LoRA基础参数
+  r: 16                    # LoRA秩，控制适配器的复杂度
+  lora_alpha: 32           # LoRA缩放参数，通常设为r的2倍
+  lora_dropout: 0.1        # LoRA层的dropout率
+  bias: "none"             # 偏置处理方式: "none", "all", "lora_only"
+  
+  # 目标层配置 - 决定对哪些层应用LoRA
+  target_modules:
+    # 保守配置 - 只对注意力机制的查询和值投影层进行LoRA
+    - "q_proj"
+    - "v_proj"
+    
+    # 标准配置 - 完整注意力层 (取消注释以启用)
+    # - "k_proj"
+    # - "o_proj"
+    
+    # 完整配置 - 包含FFN层 (取消注释以启用)
+    # - "gate_proj"
+    # - "up_proj" 
+    # - "down_proj"
+  
+  # 预设配置模板 (可选择使用)
+  presets:
+    conservative:
+      target_modules: ["q_proj", "v_proj"]
+      r: 16
+      lora_alpha: 32
+    
+    standard:
+      target_modules: ["q_proj", "v_proj", "k_proj", "o_proj"]
+      r: 16
+      lora_alpha: 32
+    
+    full:
+      target_modules: ["q_proj", "v_proj", "k_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+      r: 32
+      lora_alpha: 64

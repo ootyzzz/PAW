@@ -64,13 +64,6 @@ def analyze_batch_efficiency(dataset_name: str, batch_size: int, target_steps: i
     print(f"  - {target_steps}步需要: {total_samples_needed} 样本")
     print(f"  - 需要循环: {epochs_needed:.2f} epochs")
     
-    if epochs_needed <= 1.1:
-        print(f"  ✅ 效率很好：几乎无数据重复")
-    elif epochs_needed <= 2.0:
-        print(f"  🔄 效率一般：少量数据重复") 
-    else:
-        print(f"  ⚠️ 效率较低：大量数据重复")
-    
     return epochs_needed
 
 
@@ -82,10 +75,38 @@ def create_lightning_config(
     max_steps: int = 125, 
     save_steps: int = 50, 
     learning_rate: float = 1e-4, 
-    learning_rate_stage2: float = None
+    learning_rate_stage2: float = None,
+    external_config_path: str = None
 ) -> Dict[str, Any]:
     """创建Lightning训练配置"""
     config = base_config.copy()
+    
+    # 如果提供了外部配置文件，读取并合并LoRA配置
+    if external_config_path and os.path.exists(external_config_path):
+        import yaml
+        try:
+            with open(external_config_path, 'r', encoding='utf-8') as f:
+                external_config = yaml.safe_load(f)
+            
+            # 合并LoRA配置
+            if 'lora' in external_config:
+                config['lora'] = external_config['lora']
+                print(f"📝 从外部配置文件读取LoRA设置: {external_config_path}")
+                
+                # 显示LoRA配置信息
+                lora_config = external_config['lora']
+                if 'target_modules' in lora_config:
+                    print(f"   - 目标层: {lora_config['target_modules']}")
+                if 'r' in lora_config:
+                    print(f"   - 秩 (r): {lora_config['r']}")
+                if 'lora_alpha' in lora_config:
+                    print(f"   - Alpha: {lora_config['lora_alpha']}")
+                if 'lora_dropout' in lora_config:
+                    print(f"   - Dropout: {lora_config['lora_dropout']}")
+                    
+        except Exception as e:
+            print(f"⚠️ 读取外部配置文件失败: {e}")
+            print(f"   继续使用默认LoRA配置")
     
     # 自动选择最优batch size（如果未指定）
     if batch_size is None:
