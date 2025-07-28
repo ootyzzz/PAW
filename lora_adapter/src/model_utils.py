@@ -64,12 +64,13 @@ class ModelWeightLoader:
         """
         logger.info(f"加载基础模型权重: {model_path}")
         
-        # 使用transformers加载模型
+        # 使用transformers加载模型，优化内存使用
         model = AutoModelForCausalLM.from_pretrained(
             model_path,
-            torch_dtype=torch.float32,  # 使用float32确保精度
-            device_map=None,  # 不自动分配设备
-            trust_remote_code=True
+            torch_dtype=torch.float16,  # 使用float16减少内存
+            device_map="cpu",  # 强制使用CPU避免GPU内存不足
+            trust_remote_code=True,
+            low_cpu_mem_usage=True  # 启用低内存模式
         )
         
         # 提取权重
