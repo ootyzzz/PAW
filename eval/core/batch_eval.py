@@ -14,7 +14,7 @@ def evaluate_models(
     output_dir: str = "eval/results",
     base_model_path: str = None,
     sample_ratio: float = 1.0,
-    batch_size: int = 8
+    batch_size: int = 1
 ):
     """评估多个模型并保存结果"""
     print("\n" + "=" * 70)
@@ -68,6 +68,8 @@ def evaluate_models(
             # 初始化Lightning评估模块
             evaluator = LightningModelEvaluator(model_path, base_model_path)
             print(f"✅ 评估器初始化成功")
+            
+            # 模型加载完成，无需调整batch size
             
             # 创建Trainer (无需checkpoint) - 针对Gemma模型优化
             trainer_kwargs = {
@@ -125,10 +127,6 @@ def evaluate_models(
                 json.dump(model_results, f, indent=4, ensure_ascii=False)
                 
             print(f"✅ 评估完成 (用时: {eval_time:.1f}秒, {model_results['samples_per_second']:.1f} 样本/秒)")
-            print(f"📊 结果:")
-            print(f"  - Loss: {model_results.get('test/loss', 0):.4f}")
-            print(f"  - Accuracy: {model_results.get('test/accuracy', 0):.4f}") 
-            print(f"  - Perplexity: {model_results.get('test/perplexity', 0):.4f}")
             
             # 清理内存
             del evaluator
@@ -234,76 +232,30 @@ def evaluate_models(
                     'Timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 })
     
-    csv_file = None  # 初始化变量
-    if rows:
+    # 如果是完整数据集评估 (sample_ratio = 1.0)，追加到实验结果文件
+    if rows and sample_ratio == 1.0:
         try:
-            # 手动写CSV文件，避免pandas问题
-            csv_file = output_path / f"lightning_evaluation_results_{timestamp}.csv"
+            import pandas as pd
+            df = pd.DataFrame(rows)
+            experiment_csv = Path("results/experiment_results.csv")
             
-            # 获取列名
-            headers = ['Model', 'Dataset', 'Loss', 'Accuracy', 'Perplexity', 'Eval_Time(s)', 'Samples/Sec', 'Timestamp']
+            # 确保目录存在
+            experiment_csv.parent.mkdir(parents=True, exist_ok=True)
             
-            with open(csv_file, 'w', encoding='utf-8', newline='') as f:
-                f.write(','.join(headers) + '\n')
-                for row in rows:
-                    values = []
-                    for header in headers:
-                        val = row.get(header, '')
-                        # 确保值是字符串，并处理可能的逗号
-                        if isinstance(val, str) and ',' in val:
-                            val = f'"{val}"'
-                        values.append(str(val))
-                    f.write(','.join(values) + '\n')
-            
-            print(f" 结果已保存到: {csv_file}")
-            
-            # 尝试pandas方式作为备选
-            try:
-                # 只有在手动方式成功后才尝试pandas
-                import pandas as pd
-                df = pd.DataFrame(rows)
-                cumulative_csv = output_path / "all_evaluation_results.csv"
-                if cumulative_csv.exists():
-                    existing_df = pd.read_csv(cumulative_csv, encoding='utf-8-sig')
-                    # 移除重复项
-                    for _, row_data in df.iterrows():
-                        mask = (existing_df['Model'] == row_data['Model']) & (existing_df['Dataset'] == row_data['Dataset'])
-                        existing_df = existing_df[~mask]
-                    combined_df = pd.concat([existing_df, df], ignore_index=True)
-                    combined_df.to_csv(cumulative_csv, index=False, encoding='utf-8-sig')
-                else:
-                    df.to_csv(cumulative_csv, index=False, encoding='utf-8-sig')
-                print(f"📁 累积结果: {cumulative_csv}")
-            except Exception as pandas_error:
-                print(f"⚠️ pandas累积CSV更新失败: {pandas_error}")
-                # 不影响主要CSV文件的保存
-        except Exception as e:
-            print(f"⚠️ 保存CSV结果失败: {e}")
-            traceback.print_exc()
-    
-    # 打印汇总表格
-    print("\n" + "=" * 80)
-    print("📊 评估结果汇总")
-    print("=" * 80)
-    print(f"{'Model':<40} {'Dataset':<15} {'Loss':<8} {'Accuracy':<10} {'Perplexity':<12} {'Time(s)':<8} {'Samples/s':<10}")
-    print("-" * 110)
-    
-    for model_name, model_results in results.items():
-        for dataset_name, dataset_results in model_results.items():
-            if 'error' not in dataset_results:
-                print(f"{model_name:<40} {dataset_name:<15} "
-                      f"{dataset_results.get('test/loss', 0):<8.4f} "
-                      f"{dataset_results.get('test/accuracy', 0):<10.4f} "
-                      f"{dataset_results.get('test/perplexity', 0):<12.4f} "
-                      f"{dataset_results.get('eval_time_seconds', 0):<8.1f} "
-                      f"{dataset_results.get('samples_per_second', 0):<10.1f}")
+            if experiment_csv.exists():
+                existing_df = pd.read_csv(experiment_csv, encoding='utf-8-sig')
+                # 移除重复项
+                for _, row_data in df.iterrows():
+                    mask = (existing_df['Model'] == row_data['Model']) & (existing_df['Dataset'] == row_data['Dataset'])
+                    existing_df = existing_df[~mask]
+                combined_df = pd.concat([existing_df, df], ignore_index=True)
+                combined_df.to_csv(experiment_csv, index=False, encoding='utf-8-sig')
             else:
-                print(f"{model_name:<40} {dataset_name:<15} {'ERROR':<8} {'ERROR':<10} {'ERROR':<12} {'ERROR':<8} {'ERROR':<10}")
+                df.to_csv(experiment_csv, index=False, encoding='utf-8-sig')
+            print(f"📁 结果已保存到: {experiment_csv}")
+        except Exception as pandas_error:
+            print(f"⚠️ 保存结果失败: {pandas_error}")
     
-    print("\n" + "=" * 80)
     print(f"⏱️  总评估时间: {total_time:.1f}秒 ({total_time/60:.1f}分钟)")
-    print(f"📁 汇总结果: {summary_file}")
-    if csv_file:
-        print(f"📊 CSV结果: {csv_file}")
     
     return results

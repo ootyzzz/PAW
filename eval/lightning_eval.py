@@ -24,8 +24,8 @@ from core.batch_eval import evaluate_models
 def main():
     """主函数"""
     parser = argparse.ArgumentParser(description="Lightning风格的快速模型评估工具")
-    parser.add_argument("--models_list", type=str, nargs="+", required=True,
-                       help="要评估的模型路径列表")
+    parser.add_argument("--lora", type=str, nargs="+", required=True,
+                       help="要评估的LoRA模型路径列表")
     parser.add_argument("--dataset", type=str, default="arc-challenge",
                        help="数据集名称 (默认: arc-challenge)")
     parser.add_argument("--output_dir", type=str, default="eval/results",
@@ -34,8 +34,6 @@ def main():
                        help="指定基础模型路径，用于加载LoRA模型 (可选)")
     parser.add_argument("--sample_ratio", type=float, default=1.0,
                        help="数据采样比例，加速评估 (默认: 1.0 = 100%%)")
-    parser.add_argument("--batch_size", type=int, default=8,
-                       help="批处理大小 (默认: 8)")
     
     args = parser.parse_args()
     
@@ -43,22 +41,12 @@ def main():
     print("=" * 50)
     print(f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
-    # 调试信息：显示接收到的参数
-    print(f"🔍 接收到的模型列表参数: {args.models_list}")
-    print(f"🔍 参数数量: {len(args.models_list)}")
-    for i, model in enumerate(args.models_list):
-        print(f"🔍 参数[{i}]: '{model}' (长度: {len(model)})")
-    
     # 过滤掉无效的参数（如单独的反斜杠）
     filtered_models = []
-    for model_path in args.models_list:
+    for model_path in args.lora:
         # 过滤掉空字符串、单独的反斜杠等无效参数
         if model_path and model_path.strip() and model_path.strip() not in ['\\', '/', '']:
             filtered_models.append(model_path.strip())
-        else:
-            print(f"🔍 过滤掉无效参数: '{model_path}'")
-    
-    print(f"🔍 过滤后的模型列表: {filtered_models}")
     
     # 验证模型路径
     valid_models = []
@@ -94,8 +82,7 @@ def main():
             dataset_name=args.dataset,
             output_dir=args.output_dir,
             base_model_path=args.base_model,
-            sample_ratio=args.sample_ratio,
-            batch_size=args.batch_size
+            sample_ratio=args.sample_ratio
         )
         
         print("✅ 评估完成")
