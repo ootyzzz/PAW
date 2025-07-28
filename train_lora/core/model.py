@@ -120,10 +120,19 @@ class LoRALightningModule(pl.LightningModule):
         accuracy = self._compute_accuracy(batch)
         perplexity = torch.exp(loss)
         
-        # 记录验证指标
+        # 记录验证指标到Lightning
         self.log('val/loss', loss, on_step=False, on_epoch=True, batch_size=batch_size)
         self.log('val_accuracy', accuracy, on_step=False, on_epoch=True, batch_size=batch_size)  # 早停监控这个
         self.log('val/perplexity', perplexity, on_step=False, on_epoch=True, batch_size=batch_size)
+        
+        # 记录验证指标到SwanLab
+        if hasattr(self, '_swanlab_run'):
+            swanlab.log({
+                "val/loss": loss.item(),
+                "val/accuracy": accuracy.item() if torch.is_tensor(accuracy) else accuracy,
+                "val/perplexity": perplexity.item(),
+                "val/epoch": self.current_epoch
+            }, step=self.training_step_count)
         
         return {
             'val_loss': loss,
