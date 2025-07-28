@@ -24,29 +24,39 @@ from core.batch_eval import evaluate_models
 def main():
     """主函数"""
     parser = argparse.ArgumentParser(description="Lightning风格的快速模型评估工具")
-    parser.add_argument("--lora", type=str, nargs="+", required=True,
-                       help="要评估的LoRA模型路径列表")
+    parser.add_argument("--lora", type=str, nargs="*", default=None,
+                       help="要评估的LoRA模型路径列表 (可选，如果不提供则评测base_model)")
     parser.add_argument("--dataset", type=str, default="arc-challenge",
                        help="数据集名称 (默认: arc-challenge)")
     parser.add_argument("--output_dir", type=str, default="eval/results",
                        help="评估结果输出目录 (默认: eval/results)")
     parser.add_argument("--base_model", type=str, default=None,
-                       help="指定基础模型路径，用于加载LoRA模型 (可选)")
+                       help="基础模型路径 (当不提供lora时必需，或用于加载LoRA模型)")
     parser.add_argument("--sample_ratio", type=float, default=1.0,
                        help="数据采样比例，加速评估 (默认: 1.0 = 100%%)")
     
     args = parser.parse_args()
     
+    # 验证参数逻辑
+    if not args.lora and not args.base_model:
+        parser.error("必须提供 --lora 或 --base_model 参数之一")
+    
     print("🔬 Lightning模型评估工具")
     print("=" * 50)
     print(f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
-    # 过滤掉无效的参数（如单独的反斜杠）
-    filtered_models = []
-    for model_path in args.lora:
-        # 过滤掉空字符串、单独的反斜杠等无效参数
-        if model_path and model_path.strip() and model_path.strip() not in ['\\', '/', '']:
-            filtered_models.append(model_path.strip())
+    # 确定要评估的模型列表
+    if args.lora:
+        # 如果提供了lora参数，过滤掉无效的参数（如单独的反斜杠）
+        filtered_models = []
+        for model_path in args.lora:
+            # 过滤掉空字符串、单独的反斜杠等无效参数
+            if model_path and model_path.strip() and model_path.strip() not in ['\\', '/', '']:
+                filtered_models.append(model_path.strip())
+    else:
+        # 如果没有提供lora参数，使用base_model
+        filtered_models = [args.base_model]
+        print(f"📝 评估模式: 直接评测基础模型")
     
     # 验证模型路径
     valid_models = []
