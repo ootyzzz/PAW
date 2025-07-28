@@ -142,8 +142,8 @@ def create_lightning_config(
     else:
         model_name = "default-model"
     
-    # 生成实验名称 - 使用更规范的命名
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # 生成实验名称 - 使用指定的时间戳格式 (YYMMDD_HHMMSS)
+    timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
     experiment_name = f"{dataset_name}_lora_{timestamp}"
     
     # Lightning + SwanLab 专用配置
