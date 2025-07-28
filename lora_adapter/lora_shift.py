@@ -295,7 +295,7 @@ def main():
                        help="输出基础路径")
     parser.add_argument("--rank", type=int, default=320,
                        help="SVD截断秩")
-    parser.add_argument("--similarity_threshold", type=float, default=0.3,
+    parser.add_argument("--similarity_threshold", type=float, default=0.0002,
                        help="子空间相似性阈值")
     
     args = parser.parse_args()
