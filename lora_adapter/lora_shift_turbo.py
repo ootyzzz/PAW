@@ -56,11 +56,12 @@ def infer_source_model_path(lora_path: str) -> str:
 class TurboLoRAXCore(LoRAXCore):
     """极致加速版LoRA-X核心类"""
     
-    def __init__(self, rank=128, similarity_threshold=0.002, batch_size=16):
+    def __init__(self, rank=128, similarity_threshold=0.002, batch_size=16, exclude_embedding=True):
         super().__init__(rank, similarity_threshold)
         self.batch_size = batch_size
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.cpu_device = torch.device('cpu')
+        self.exclude_embedding = exclude_embedding
         
     def stream_similarity_compute(self, valid_layers: list, source_base_weights: dict, target_base_weights: dict) -> dict:
         """批量并行计算相似度"""
@@ -170,6 +171,49 @@ class TurboLoRAXCore(LoRAXCore):
         
         return similarities
 
+    def filter_embedding_layers(self, source_lora: dict) -> tuple:
+        """过滤掉嵌入层和输出层，返回过滤后的LoRA和统计信息"""
+        excluded_patterns = [
+            'embed_tokens',     # 词嵌入层
+            'lm_head',         # 输出层
+            'embed_positions', # 位置嵌入层
+            'wte',             # 词嵌入 (GPT风格)
+            'wpe',             # 位置嵌入 (GPT风格)
+            'embeddings',      # 通用嵌入层
+        ]
+        
+        filtered_lora = {}
+        excluded_layers = []
+        layer_stats = {
+            'original_count': len(source_lora),
+            'filtered_count': 0,
+            'excluded_count': 0,
+            'excluded_layers': [],
+            'excluded_reasons': {}
+        }
+        
+        for key, weight in source_lora.items():
+            is_excluded = False
+            excluded_reason = None
+            
+            # 检查是否为嵌入层
+            for pattern in excluded_patterns:
+                if pattern in key:
+                    is_excluded = True
+                    excluded_reason = f"嵌入层/输出层 (匹配模式: {pattern})"
+                    break
+            
+            if is_excluded:
+                excluded_layers.append(key)
+                layer_stats['excluded_count'] += 1
+                layer_stats['excluded_layers'].append(key)
+                layer_stats['excluded_reasons'][key] = excluded_reason
+            else:
+                filtered_lora[key] = weight
+                layer_stats['filtered_count'] += 1
+        
+        return filtered_lora, layer_stats
+
     def transfer_lora_weights(self,
                             source_lora: dict,
                             target_base_weights: dict,
@@ -185,10 +229,29 @@ class TurboLoRAXCore(LoRAXCore):
             'skipped_reasons': {},
             'similarity_stats': [],
             'layer_types': {},
-            'processing_times': []
+            'processing_times': [],
+            'embedding_filter_stats': None
         }
         
         print(f"🚀 Turbo模式启动 - 处理{len(source_lora)}个LoRA权重")
+        
+        # 应用嵌入层过滤
+        if self.exclude_embedding:
+            print("🔍 应用嵌入层过滤...")
+            filtered_lora, filter_stats = self.filter_embedding_layers(source_lora)
+            stats['embedding_filter_stats'] = filter_stats
+            
+            print(f"📊 过滤统计:")
+            print(f"  原始层数: {filter_stats['original_count']}")
+            print(f"  保留层数: {filter_stats['filtered_count']}")
+            print(f"  排除层数: {filter_stats['excluded_count']}")
+            
+            if filter_stats['excluded_layers']:
+                print(f"  排除的层 (前5个): {filter_stats['excluded_layers'][:5]}")
+            
+            source_lora = filtered_lora
+        else:
+            print("⚠️  未启用嵌入层过滤")
         
         # 收集所有需要处理的层
         valid_layers = []
@@ -287,13 +350,26 @@ class TurboLoRAXCore(LoRAXCore):
         """打印详细统计信息"""
         print(f"\n{'🎉'*20} Turbo迁移完成统计 {'🎉'*20}")
         print(f"{'='*80}")
-        print(f"📊 总层数: {stats['total_layers']}")
-        print(f"✅ 成功迁移: {stats['transferred_layers']}")
-        print(f"❌ 跳过层数: {stats['skipped_layers']}")
+        
+        # 嵌入层过滤统计
+        if stats.get('embedding_filter_stats'):
+            filter_stats = stats['embedding_filter_stats']
+            print(f"🔍 嵌入层过滤统计:")
+            print(f"  原始LoRA层数: {filter_stats['original_count']}")
+            print(f"  保留层数: {filter_stats['filtered_count']}")
+            print(f"  排除层数: {filter_stats['excluded_count']}")
+            if filter_stats['excluded_layers']:
+                print(f"  排除的层类型: {set([reason.split('(')[0].strip() for reason in filter_stats['excluded_reasons'].values()])}")
+            print()
+        
+        print(f"� 迁移层统计:")
+        print(f"  处理层数: {stats['total_layers']}")
+        print(f"  成功迁移: {stats['transferred_layers']}")
+        print(f"  跳过层数: {stats['skipped_layers']}")
         
         if stats['transferred_layers'] > 0:
             success_rate = (stats['transferred_layers'] / stats['total_layers']) * 100
-            print(f"📈 迁移成功率: {success_rate:.1f}%")
+            print(f"  迁移成功率: {success_rate:.1f}%")
         
         # 按层类型统计
         if stats['layer_types']:
@@ -333,12 +409,12 @@ class TurboLoRAXCore(LoRAXCore):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="极致加速版LoRA迁移脚本")
+    parser = argparse.ArgumentParser(description="极致加速版LoRA迁移脚本 - 支持嵌入层过滤")
     parser.add_argument("--source_lora", type=str, required=True,
                        help="源LoRA模型路径")
     parser.add_argument("--target_model", type=str, required=True,
                        help="目标基础模型路径")
-    parser.add_argument("--output_base", type=str, 
+    parser.add_argument("--output_base", type=str,
                        default="/root/autodl-tmp/shifted/turbo",
                        help="输出基础路径")
     parser.add_argument("--rank", type=int, default=64,
@@ -347,8 +423,15 @@ def main():
                        help="相似性阈值")
     parser.add_argument("--batch_size", type=int, default=8,
                        help="批处理大小")
+    parser.add_argument("--exclude_embedding", action="store_true", default=True,
+                       help="排除嵌入层和输出层 (默认启用)")
+    parser.add_argument("--include_embedding", action="store_true", default=False,
+                       help="包含嵌入层和输出层 (覆盖exclude_embedding)")
     
     args = parser.parse_args()
+    
+    # 处理嵌入层过滤参数
+    exclude_embedding = args.exclude_embedding and not args.include_embedding
     
     # 生成时间戳和输出路径
     timestamp = generate_timestamp()
@@ -357,12 +440,13 @@ def main():
     # 推断源模型路径
     source_model_path = infer_source_model_path(args.source_lora)
     
-    print(f"🚀 TURBO LoRA迁移 - 极致加速模式")
+    print(f"🚀 TURBO LoRA迁移 - 极致加速模式 (改进版)")
     print(f"📂 源LoRA: {args.source_lora}")
     print(f"📂 源模型: {source_model_path}")
     print(f"📂 目标模型: {args.target_model}")
     print(f"📂 输出: {output_path}")
     print(f"⚙️ 参数: rank={args.rank}, threshold={args.similarity_threshold}, batch={args.batch_size}")
+    print(f"🔍 嵌入层过滤: {'启用' if exclude_embedding else '禁用'}")
     
     try:
         # 检查路径
@@ -373,9 +457,10 @@ def main():
         
         # 初始化组件
         lora_x = TurboLoRAXCore(
-            rank=args.rank, 
+            rank=args.rank,
             similarity_threshold=args.similarity_threshold,
-            batch_size=args.batch_size
+            batch_size=args.batch_size,
+            exclude_embedding=exclude_embedding
         )
         loader = ModelWeightLoader()
         

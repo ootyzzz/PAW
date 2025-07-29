@@ -5,8 +5,7 @@ Lightning风格的快速评估脚本 - 基于PyTorch Lightning优化的评估方
 使用Lightning的数据加载和并行处理机制，显著提高评估速度
 
 使用示例:
-python /root/PAW/eval/lightning_eval.py --base_model /root/autodl-tmp/models/gemma-2-2b-it
-    --dataset arc-challenge
+python /root/PAW/eval/lightning_eval.py --base_model /root/autodl-tmp/models/Meta-Llama-3.1-8B-Instruct --lora /root/autodl-tmp/shifted/Qwen2.5-7B_to_Llama-3.1-8B/250729_222026 --dataset arc-challenge
 """
 
 import sys
@@ -31,8 +30,8 @@ def main():
                        help="基础模型路径 (当不提供lora时必需，或用于加载LoRA模型)")
     parser.add_argument("--sample_ratio", type=float, default=1.0,
                        help="数据采样比例，加速评估 (默认: 1.0 = 100%%)")
-    parser.add_argument("--batch_size", type=int, default=8,
-                       help="批处理大小 (默认: 8)")
+    parser.add_argument("--batch_size", type=int, default=1,
+                       help="批处理大小 (默认: 1)")
     
     args = parser.parse_args()
     
