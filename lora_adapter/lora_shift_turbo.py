@@ -7,6 +7,9 @@
 3. 移除详细日志，只保留关键信息
 4. 并行处理多个层
 5. 内存优化，及时释放不需要的张量
+
+python /root/PAW/lora_adapter/lora_shift_turbo.py --source_lora /root/autodl-tmp/loraed/Qwen2.5-7B-Instruct/250719_004518/final_model --target_model /root/autodl-tmp/models/Meta-Llama-3.1-8B-Instruct --batch_size 8
+
 """
 
 import argparse
