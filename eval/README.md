@@ -4,17 +4,17 @@
 
 ### 基本用法
 ```bash
-# 单个模型评估
-python eval/lightning_eval.py --models_list /root/autodl-tmp/models/Qwen_Qwen2.5-1.5B --dataset arc-challenge
+# 单个基础模型评估
+python eval/lightning_eval.py --base_model ../autodl-tmp/models/Qwen2.5-7B-Instruct --dataset arc-challenge --batch_size 4
 
-# 多个模型评估
-python eval/lightning_eval.py --models_list /root/autodl-tmp/models/Qwen_Qwen2.5-1.5B /root/autodl-tmp/models/gemma-2-2b-it --dataset arc-challenge
+# 使用LoRA参数
+python eval/lightning_eval.py --lora ../autodl-tmp/models/Qwen2.5-7B-Instruct --dataset arc-challenge --batch_size 4
 
 # 快速测试（使用1%数据）
-python eval/lightning_eval.py --models_list /root/autodl-tmp/models/Qwen_Qwen2.5-1.5B --dataset arc-challenge --sample_ratio 0.01
+python eval/lightning_eval.py --base_model ../autodl-tmp/models/Qwen2.5-7B-Instruct --dataset arc-challenge --batch_size 4 --sample_ratio 0.01
 
 # LoRA模型评估
-python eval/lightning_eval.py --models_list /root/PAW/runs/arc-challenge/Qwen_Qwen2.5-1.5B/181133/final_model --base_model /root/autodl-tmp/models/Qwen_Qwen2.5-1.5B --dataset arc-challenge
+python eval/lightning_eval.py --lora /path/to/lora/model --base_model ../autodl-tmp/models/Qwen2.5-7B-Instruct --dataset arc-challenge --batch_size 4
 ```
 
 ### 环境要求
@@ -24,16 +24,16 @@ conda activate cuda312
 
 ## 工具概述
 
-`lightning_eval.py` 是基于PyTorch Lightning的模型评估工具，支持批量评估多个模型，包括基础模型和LoRA微调模型。
+`lightning_eval.py` 是基于PyTorch Lightning的模型评估工具，支持评估基础模型和LoRA微调模型。
 
 ## 参数说明
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `--models_list` | str+ | 必需 | 要评估的模型路径列表 |
+| `--lora` | str* | None | LoRA模型路径列表（可选） |
+| `--base_model` | str | None | 基础模型路径（必需，除非提供lora） |
 | `--dataset` | str | arc-challenge | 数据集名称 |
 | `--output_dir` | str | eval/results | 评估结果输出目录 |
-| `--base_model` | str | None | LoRA模型的基础模型路径（可选） |
 | `--sample_ratio` | float | 1.0 | 数据采样比例（0.01-1.0） |
 | `--batch_size` | int | 8 | 批处理大小 |
 
@@ -46,7 +46,14 @@ conda activate cuda312
 ## 支持的数据集
 
 - `arc-challenge`: ARC Challenge数据集
-- 其他数据集需要在 `data_to_lora/cs/` 目录下有对应的测试文件
+- `arc-easy`: ARC Easy数据集
+- `boolq`: BoolQ数据集
+- `hellaswag`: HellaSwag数据集
+- `openbookqa`: OpenBookQA数据集
+- `piqa`: PIQA数据集
+- `winogrande`: WinoGrande数据集
+
+数据集文件位置：`data_to_lora/cs/{dataset}/`
 
 ## 输出结果
 
@@ -57,9 +64,9 @@ conda activate cuda312
 - 性能统计（评估时间、样本/秒）
 
 ### 文件输出
-- **JSON格式**: `lightning_evaluation_summary_YYYYMMDD_HHMMSS.json`
 - **CSV格式**: `lightning_evaluation_results_YYYYMMDD_HHMMSS.csv`
-- **单模型结果**: `{model_name}_{dataset}_evaluation_results.json`
+  - 包含字段：Model, Dataset, Loss, Accuracy, Perplexity, Eval_Time(s), Samples/Sec, Batch_Size, Timestamp
+- **总结果文件**: `results/experiment_results.csv` (仅当sample_ratio=1.0时)
 
 ## 项目结构
 
@@ -72,7 +79,7 @@ PAW/eval/
 │   ├── evaluator.py               # Lightning评估器
 │   ├── model_loader.py            # 模型加载工具
 │   └── batch_eval.py              # 批量评估逻辑
-├── lightning_eval.py          # 主入口脚本
+├── lightning_eval.py              # 主入口脚本
 ├── results/                       # 评估结果目录
 └── README.md                      # 本文档
 ```
@@ -82,7 +89,7 @@ PAW/eval/
 ### 模型加载
 - 自动检测模型类型（基础模型/LoRA模型）
 - 支持本地路径和HuggingFace模型名称
-- 智能设备分配和精度优化
+- 智能设备分配和精度优化（fp16混合精度，Gemma模型使用fp32）
 
 ### 数据处理
 - 支持数据采样加速评估
@@ -96,16 +103,28 @@ PAW/eval/
 
 ### 性能优化
 - PyTorch Lightning并行处理
-- 混合精度训练（16-bit）
+- 混合精度训练（16-bit，Gemma模型除外）
 - GPU内存优化
 - 批量处理优化
+
+## 当前状态
+
+### 已修复的问题
+- ✅ batch_size参数现在可以正确传递和使用
+- ✅ CSV输出功能正常工作，使用原生CSV模块避免pandas数据类型问题
+- ✅ 支持完整的评估指标输出
+
+### 推荐配置
+- **服务器环境**: batch_size=4（大部分模型），batch_size=2（Gemma模型）
+- **4090显卡**: batch_size=1-2（根据模型大小调整）
+- **模型路径**: 使用 `../autodl-tmp/models/` 作为模型基础目录
 
 ## 注意事项
 
 1. **环境依赖**: 必须在 `cuda312` conda环境中运行
-2. **内存管理**: 大模型评估时注意GPU内存使用
+2. **内存管理**: 大模型评估时注意GPU内存使用，适当调整batch_size
 3. **路径格式**: 模型路径必须存在或为有效的HuggingFace模型名称
-4. **LoRA模型**: 需要指定 `--base_model` 参数或确保adapter_config.json中包含基础模型路径
+4. **LoRA模型**: 需要指定 `--base_model` 参数
 
 ## 故障排除
 
@@ -117,10 +136,24 @@ PAW/eval/
 - 验证模型文件完整性
 
 **内存不足**
-- 减小 `--batch_size` 参数
-- 使用 `--sample_ratio` 减少数据量
+- 减小 `--batch_size` 参数（推荐从4降到2或1）
+- 使用 `--sample_ratio` 减少数据量进行快速测试
 - 检查GPU内存使用情况
 
 **数据集不存在**
 - 确认数据集文件在 `data_to_lora/cs/{dataset}/` 目录下
 - 检查数据文件格式是否正确
+
+**CSV输出问题**
+- 当前版本使用原生CSV模块，避免了pandas数据类型转换问题
+- CSV文件保存在 `eval/results/` 目录下，文件名包含时间戳
+
+## 批量评估建议
+
+对于批量评估多个模型，建议使用shell脚本或手动运行：
+
+```bash
+# 示例：评估多个模型在单个数据集上
+for model in Qwen2.5-7B-Instruct baichuan-7B chatglm3-6b; do
+    python eval/lightning_eval.py --base_model ../autodl-tmp/models/$model --dataset arc-challenge --batch_size 4
+done

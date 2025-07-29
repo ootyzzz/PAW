@@ -34,6 +34,8 @@ def main():
                        help="基础模型路径 (当不提供lora时必需，或用于加载LoRA模型)")
     parser.add_argument("--sample_ratio", type=float, default=1.0,
                        help="数据采样比例，加速评估 (默认: 1.0 = 100%%)")
+    parser.add_argument("--batch_size", type=int, default=8,
+                       help="批处理大小 (默认: 8)")
     
     args = parser.parse_args()
     
@@ -92,7 +94,8 @@ def main():
             dataset_name=args.dataset,
             output_dir=args.output_dir,
             base_model_path=args.base_model,
-            sample_ratio=args.sample_ratio
+            sample_ratio=args.sample_ratio,
+            batch_size=args.batch_size
         )
         
         print("✅ 评估完成")

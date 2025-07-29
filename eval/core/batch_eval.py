@@ -121,10 +121,10 @@ def evaluate_models(
                 dataset_name: model_results
             }
             
-            # 保存单个模型结果
-            result_file = output_path / f"{model_name}_{dataset_name}_evaluation_results.json"
-            with open(result_file, 'w', encoding='utf-8') as f:
-                json.dump(model_results, f, indent=4, ensure_ascii=False)
+            # 不再保存单个模型的JSON结果文件，减少文件输出
+            # result_file = output_path / f"{model_name}_{dataset_name}_evaluation_results.json"
+            # with open(result_file, 'w', encoding='utf-8') as f:
+            #     json.dump(model_results, f, indent=4, ensure_ascii=False)
                 
             print(f"✅ 评估完成 (用时: {eval_time:.1f}秒, {model_results['samples_per_second']:.1f} 样本/秒)")
             
@@ -177,25 +177,25 @@ def evaluate_models(
     # 计算总用时
     total_time = time.time() - start_time
     
-    # 保存汇总结果
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    summary_file = output_path / f"lightning_evaluation_summary_{timestamp}.json"
-    
-    summary_data = {
-        "evaluation_summary": {
-            "dataset": dataset_name,
-            "total_models": len(models_list),
-            "sample_ratio": sample_ratio,
-            "batch_size": batch_size,
-            "total_samples": len(test_dataset),
-            "total_time_seconds": total_time,
-            "timestamp": datetime.now().isoformat()
-        },
-        "results": results
-    }
-    
-    with open(summary_file, 'w', encoding='utf-8') as f:
-        json.dump(summary_data, f, indent=4, ensure_ascii=False)
+    # 简化汇总结果输出 - 不再生成带时间戳的JSON文件
+    # timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # summary_file = output_path / f"lightning_evaluation_summary_{timestamp}.json"
+    #
+    # summary_data = {
+    #     "evaluation_summary": {
+    #         "dataset": dataset_name,
+    #         "total_models": len(models_list),
+    #         "sample_ratio": sample_ratio,
+    #         "batch_size": batch_size,
+    #         "total_samples": len(test_dataset),
+    #         "total_time_seconds": total_time,
+    #         "timestamp": datetime.now().isoformat()
+    #     },
+    #     "results": results
+    # }
+    #
+    # with open(summary_file, 'w', encoding='utf-8') as f:
+    #     json.dump(summary_data, f, indent=4, ensure_ascii=False)
     
     # 保存CSV格式结果
     rows = []
@@ -209,52 +209,101 @@ def evaluate_models(
                 time_val = dataset_results.get('eval_time_seconds', 0)
                 samples_val = dataset_results.get('samples_per_second', 0)
                 
-                # 转换tensor/numpy值为Python标量
-                if hasattr(loss_val, 'item'):
-                    loss_val = float(loss_val.item())
-                if hasattr(acc_val, 'item'):
-                    acc_val = float(acc_val.item())
-                if hasattr(ppl_val, 'item'):
-                    ppl_val = float(ppl_val.item())
-                if hasattr(time_val, 'item'):
-                    time_val = float(time_val.item())
-                if hasattr(samples_val, 'item'):
-                    samples_val = float(samples_val.item())
+                # 强制转换为Python原生类型
+                try:
+                    if hasattr(loss_val, 'item'):
+                        loss_val = float(loss_val.item())
+                    else:
+                        loss_val = float(loss_val)
+                except:
+                    loss_val = 0.0
+                    
+                try:
+                    if hasattr(acc_val, 'item'):
+                        acc_val = float(acc_val.item())
+                    else:
+                        acc_val = float(acc_val)
+                except:
+                    acc_val = 0.0
+                    
+                try:
+                    if hasattr(ppl_val, 'item'):
+                        ppl_val = float(ppl_val.item())
+                    else:
+                        ppl_val = float(ppl_val)
+                except:
+                    ppl_val = 0.0
+                    
+                try:
+                    if hasattr(time_val, 'item'):
+                        time_val = float(time_val.item())
+                    else:
+                        time_val = float(time_val)
+                except:
+                    time_val = 0.0
+                    
+                try:
+                    if hasattr(samples_val, 'item'):
+                        samples_val = float(samples_val.item())
+                    else:
+                        samples_val = float(samples_val)
+                except:
+                    samples_val = 0.0
                 
-                rows.append({
+                row_data = {
                     'Model': str(model_name),
                     'Dataset': str(dataset_name),
-                    'Loss': round(float(loss_val), 4),
-                    'Accuracy': round(float(acc_val), 4),
-                    'Perplexity': round(float(ppl_val), 4),
-                    'Eval_Time(s)': round(float(time_val), 1),
-                    'Samples/Sec': round(float(samples_val), 1),
-                    'Timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                })
+                    'Loss': round(loss_val, 4),
+                    'Accuracy': round(acc_val, 4),
+                    'Perplexity': round(ppl_val, 4),
+                    'Eval_Time(s)': round(time_val, 1),
+                    'Samples/Sec': round(samples_val, 1),
+                    'Batch_Size': batch_size,
+                    'Timestamp': str(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+                }
+                rows.append(row_data)
     
-    # 如果是完整数据集评估 (sample_ratio = 1.0)，追加到实验结果文件
-    if rows and sample_ratio == 1.0:
+    # 保存CSV格式结果 - 使用原生CSV写入避免pandas问题
+    if rows:
         try:
-            import pandas as pd
-            df = pd.DataFrame(rows)
-            experiment_csv = Path("results/experiment_results.csv")
+            import csv
             
-            # 确保目录存在
-            experiment_csv.parent.mkdir(parents=True, exist_ok=True)
+            # 生成带时间戳的CSV文件
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            csv_file = output_path / f"lightning_evaluation_results_{timestamp}.csv"
             
-            if experiment_csv.exists():
-                existing_df = pd.read_csv(experiment_csv, encoding='utf-8-sig')
-                # 移除重复项
-                for _, row_data in df.iterrows():
-                    mask = (existing_df['Model'] == row_data['Model']) & (existing_df['Dataset'] == row_data['Dataset'])
-                    existing_df = existing_df[~mask]
-                combined_df = pd.concat([existing_df, df], ignore_index=True)
-                combined_df.to_csv(experiment_csv, index=False, encoding='utf-8-sig')
-            else:
-                df.to_csv(experiment_csv, index=False, encoding='utf-8-sig')
-            print(f"📁 结果已保存到: {experiment_csv}")
-        except Exception as pandas_error:
-            print(f"⚠️ 保存结果失败: {pandas_error}")
+            # 写入CSV文件
+            with open(csv_file, 'w', newline='', encoding='utf-8') as f:
+                if rows:
+                    fieldnames = rows[0].keys()
+                    writer = csv.DictWriter(f, fieldnames=fieldnames)
+                    writer.writeheader()
+                    writer.writerows(rows)
+            
+            print(f"📁 CSV结果已保存到: {csv_file}")
+            
+            # 如果是完整数据集评估，也追加到总的实验结果文件
+            if sample_ratio == 1.0:
+                experiment_csv = Path("results/experiment_results.csv")
+                
+                # 确保目录存在
+                experiment_csv.parent.mkdir(parents=True, exist_ok=True)
+                
+                # 简单追加到文件
+                file_exists = experiment_csv.exists()
+                with open(experiment_csv, 'a', newline='', encoding='utf-8') as f:
+                    if rows:
+                        fieldnames = rows[0].keys()
+                        writer = csv.DictWriter(f, fieldnames=fieldnames)
+                        if not file_exists:
+                            writer.writeheader()
+                        writer.writerows(rows)
+                
+                print(f"📁 总结果已追加到: {experiment_csv}")
+        except Exception as csv_error:
+            print(f"⚠️ 保存CSV结果失败: {csv_error}")
+            import traceback
+            traceback.print_exc()
     
     print(f"⏱️  总评估时间: {total_time:.1f}秒 ({total_time/60:.1f}分钟)")
     

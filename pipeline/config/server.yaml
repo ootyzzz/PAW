@@ -13,17 +13,18 @@ paths:
 
 # 训练配置
 training:
-  default_batch_size: 2
-  default_max_steps: 1000
+  default_batch_size: 8
+  default_max_steps: 300
   default_lr: '1e-5'
   # 要运行的数据集列表 - 不需要的可以注释掉
   datasets:
-    # - 'piqa'
     - 'arc-challenge'
-    # - 'arc-easy'
-    # - 'hellaswag'
-    # - 'winogrande'
-
+    - 'arc-easy'
+    - 'boolq'
+    - 'hellaswag'
+    - 'openbookqa'
+    - 'piqa'
+    - 'winogrande'
 # 评估配置
 evaluation:
   sample_ratio: 1.0
@@ -52,9 +53,9 @@ lora:
     - "o_proj"
     
     # 完整配置 - 包含FFN层 (取消注释以启用)
-    # - "gate_proj"
-    # - "up_proj" 
-    # - "down_proj"
+    - "gate_proj"
+    - "up_proj" 
+    - "down_proj"
   
   # 预设配置模板 (可选择使用)
   presets:
