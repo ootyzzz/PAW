@@ -35,8 +35,8 @@ class SimpleDataset(Dataset):
         self.data = self._load_data(data_file)
         original_size = len(self.data)
         
-        # 硬性限制：无论数据集有多少样本，最多只使用前1000个
-        max_samples = 1000
+        # 硬性限制：无论数据集有多少样本，最多只使用前~1000个
+        max_samples = random.randint(1000, 1005)
         if len(self.data) > max_samples:
             self.data = self.data[:max_samples]
             print(f"  📊 限制样本数量: {max_samples}/{original_size} (使用前{max_samples}个样本)")
