@@ -1,422 +1,149 @@
 #!/usr/bin/env python3
 """
-LoRA-X核心实现模块
-基于论文: LoRA-X: Bridging Foundation Models with Training-Free Cross-Model Adaptation
+/root/PAW/lora_adapter/src/lora_x_core.py
+LoRA-X核心实现模块 (带截断对齐)
 """
 
 import torch
-import torch.nn as nn
-import numpy as np
-from typing import Dict, Tuple, List, Optional
-from safetensors import safe_open
 import logging
+from typing import Dict, Tuple
 
 logger = logging.getLogger(__name__)
 
-
 class LoRAXCore:
-    """LoRA-X核心算法实现"""
+    """LoRA-X核心算法实现 (支持FP16推理，投影阶段临时升FP32)"""
     
-    def __init__(self, rank: int = 320, similarity_threshold: float = 0.3):
-        """
-        Args:
-            rank: SVD截断秩，论文中推荐320
-            similarity_threshold: 子空间相似性阈值
-        """
+    def __init__(self, rank: int = 320):
         self.rank = rank
-        self.similarity_threshold = similarity_threshold
-        
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.used_transform = 0
+        self.used_truncation = 0
+        self.used_padding = 0
+
     def compute_svd_subspace(self, weight_matrix: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        计算权重矩阵的SVD子空间分解 - CUDA加速版本
-        
-        Args:
-            weight_matrix: 权重矩阵 W ∈ R^(m×n)
-            
-        Returns:
-            U_truncated: 截断的左奇异矩阵 Ũ ∈ R^(m×r)
-            S_truncated: 截断的奇异值 s̃ ∈ R^r  
-            Vh_truncated: 截断的右奇异矩阵 Ṽ^T ∈ R^(r×n)
-        """
-        # 确保在CUDA设备上计算
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        weight_matrix = weight_matrix.to(device)
-        
-        # 执行SVD分解
-        U, S, Vh = torch.linalg.svd(weight_matrix.float(), full_matrices=False)
-        
-        # 截断到指定rank
-        effective_rank = min(self.rank, min(weight_matrix.shape))
-        U_truncated = U[:, :effective_rank]
-        S_truncated = S[:effective_rank] 
-        Vh_truncated = Vh[:effective_rank, :]
-        
+        """计算权重矩阵的SVD子空间分解"""
+        weight_matrix = weight_matrix.to(self.device)
+        if weight_matrix.dtype == torch.float16:
+            weight_matrix = weight_matrix.float()
+        with torch.no_grad():
+            U, S, Vh = torch.linalg.svd(weight_matrix, full_matrices=False)
+            effective_rank = min(self.rank, min(weight_matrix.shape))
+            U_truncated = U[:, :effective_rank]
+            S_truncated = S[:effective_rank]
+            Vh_truncated = Vh[:effective_rank, :]
         return U_truncated, S_truncated, Vh_truncated
-    
-    def compute_subspace_similarity(self, U_source: torch.Tensor, U_target: torch.Tensor) -> float:
+
+    def _frobenius_projection_with_transform(
+        self,
+        lora_weight: torch.Tensor,
+        source_base: torch.Tensor,
+        target_base: torch.Tensor,
+        lora_key: str
+    ) -> torch.Tensor:
         """
-        计算子空间相似性 - CUDA加速版本
-        使用Frobenius内积: ||U_s^T U_t||_F^2 / (||U_s||_F^2 * ||U_t||_F^2)
-            
-        Returns:
-            similarity: 相似性分数 [0, 1]
+        Frobenius最优近似 + Linear Transform (带截断对齐)
+        对应LoRA-X论文4.2.2不同维度情况
         """
-        # 确保在CUDA设备上计算
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        U_source = U_source.to(device)
-        U_target = U_target.to(device)
-        
-        # 处理维度完全不匹配的情况
-        if U_source.shape[0] != U_target.shape[0]:
-            # 如果行维度不同，使用投影方法计算相似性
-            min_rows = min(U_source.shape[0], U_target.shape[0])
-            min_cols = min(U_source.shape[1], U_target.shape[1])
-            
-            # 截断到最小维度
-            U_s = U_source[:min_rows, :min_cols]
-            U_t = U_target[:min_rows, :min_cols]
-        else:
-            # 行维度相同，只处理列维度
-            min_dim = min(U_source.shape[1], U_target.shape[1])
-            U_s = U_source[:, :min_dim]
-            U_t = U_target[:, :min_dim]
-        
-        # 计算内积矩阵
-        inner_product = torch.mm(U_s.T, U_t)
-        
-        # 计算Frobenius范数平方作为相似性度量
-        similarity = torch.norm(inner_product, p='fro')**2 / (U_s.shape[1] * U_t.shape[1])
-        
-        return similarity.item()
-    
-    def transfer_lora_weights(self, 
-                            source_lora: Dict[str, torch.Tensor],
-                            target_base_weights: Dict[str, torch.Tensor],
-                            source_base_weights: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        """
-        执行LoRA-X迁移
-        
-        Args:
-            source_lora: 源模型LoRA权重字典
-            target_base_weights: 目标模型基础权重  
-            source_base_weights: 源模型基础权重
-            
-        Returns:
-            transferred_lora: 迁移后的LoRA权重字典
-        """
-        transferred_lora = {}
-        transfer_stats = {
-            'total_layers': 0,
-            'transferred_layers': 0, 
-            'skipped_layers': [],
-            'skipped_reasons': {},
-            'similarity_stats': [],
-            'layer_types': {}
-        }
-        
-        # 预计算所有相似度（并行化）
-        logger.info("预计算所有层的相似度...")
-        similarities = self._precompute_similarities_parallel(source_lora, source_base_weights, target_base_weights)
-        
-        # 遍历源LoRA权重
-        for lora_key in source_lora.keys():
-            if not lora_key.endswith('.weight'):
-                continue
+        device = self.device
+        lora_weight = lora_weight.to(device).float()
+        source_base = source_base.to(device).float()
+        target_base = target_base.to(device).float()
 
-            transfer_stats['total_layers'] += 1
-            
-            # 分析层类型
-            layer_type = self._classify_layer_type(lora_key)
-            if layer_type not in transfer_stats['layer_types']:
-                transfer_stats['layer_types'][layer_type] = {'total': 0, 'transferred': 0}
-            transfer_stats['layer_types'][layer_type]['total'] += 1
+        with torch.no_grad():
+            U_s, _, _ = self.compute_svd_subspace(source_base)
+            U_t, _, _ = self.compute_svd_subspace(target_base)
 
-            # 找到对应的基础权重
-            base_key = self._map_lora_to_base_key(lora_key)
+            # 对齐行数
+            m_min = min(U_s.shape[0], U_t.shape[0])
+            U_s = U_s[:m_min, :]
+            U_t = U_t[:m_min, :]
 
-            if base_key not in source_base_weights or base_key not in target_base_weights:
-                reason = "找不到对应的基础权重"
-                logger.warning(f"跳过层 {lora_key}: {reason}")
-                transfer_stats['skipped_layers'].append(lora_key)
-                transfer_stats['skipped_reasons'][lora_key] = reason
-                continue
-
-            # 获取权重
-            source_base = source_base_weights[base_key]
-            target_base = target_base_weights[base_key]
-            lora_weight = source_lora[lora_key]
-
-            # 使用预计算的相似度
-            similarity = similarities.get(base_key, 0.0)
-            transfer_stats['similarity_stats'].append({
-                'layer': lora_key,
-                'similarity': similarity,
-                'layer_type': layer_type
-            })
-
-            # 检查维度兼容性
-            if not self._check_dimension_compatibility(source_base, target_base, lora_weight):
-                logger.info(f"层 {lora_key} 维度不兼容，采用Frobenius最小化投影")
-                try:
-                    projected_weight = self._frobenius_projection(lora_weight, source_base, target_base)
-                    transferred_lora[lora_key] = projected_weight
-                    transfer_stats['transferred_layers'] += 1
-                    transfer_stats['layer_types'][layer_type]['transferred'] += 1
-                    logger.info(f"成功迁移层 {lora_key} (Frobenius投影, 相似性={similarity:.3f})")
-                except Exception as e:
-                    reason = f"Frobenius投影失败: {e}"
-                    logger.warning(reason)
-                    transfer_stats['skipped_layers'].append(lora_key)
-                    transfer_stats['skipped_reasons'][lora_key] = reason
-                continue
-
-            # 相似性过滤
-            if similarity < self.similarity_threshold:
-                reason = f"相似性过低 ({similarity:.3f} < {self.similarity_threshold})"
-                logger.info(f"跳过层 {lora_key}: {reason}")
-                transfer_stats['skipped_layers'].append(lora_key)
-                transfer_stats['skipped_reasons'][lora_key] = reason
-                continue
-
-            # 执行迁移
-            transferred_weight = self._transfer_single_layer(lora_weight, source_base, target_base)
-            transferred_lora[lora_key] = transferred_weight
-            transfer_stats['transferred_layers'] += 1
-            transfer_stats['layer_types'][layer_type]['transferred'] += 1
-            logger.info(f"成功迁移层 {lora_key}: 相似性={similarity:.3f}")
-        
-        self._log_transfer_stats(transfer_stats)
-        return transferred_lora
-    
-    def _precompute_similarities_parallel(self, source_lora: Dict[str, torch.Tensor], 
-                                        source_base_weights: Dict[str, torch.Tensor],
-                                        target_base_weights: Dict[str, torch.Tensor]) -> Dict[str, float]:
-        """并行预计算所有层的相似度"""
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        similarities = {}
-        
-        # 收集所有需要计算的层
-        valid_keys = []
-        for lora_key in source_lora.keys():
-            if not lora_key.endswith('.weight'):
-                continue
-            base_key = self._map_lora_to_base_key(lora_key)
-            if base_key in source_base_weights and base_key in target_base_weights:
-                valid_keys.append(base_key)
-        
-        # 去重
-        unique_keys = list(set(valid_keys))
-        logger.info(f"需要计算相似度的唯一层数: {len(unique_keys)}")
-        
-        # 批量计算SVD和相似度
-        for i, base_key in enumerate(unique_keys):
-            if i % 10 == 0:
-                logger.info(f"计算进度: {i}/{len(unique_keys)}")
-            
+            # 构造线性变换
             try:
-                source_base = source_base_weights[base_key].to(device)
-                target_base = target_base_weights[base_key].to(device)
-                
-                U_s, _, _ = self.compute_svd_subspace(source_base)
-                U_t, _, _ = self.compute_svd_subspace(target_base)
-                similarity = self.compute_subspace_similarity(U_s, U_t)
-                similarities[base_key] = similarity
-            except Exception as e:
-                logger.warning(f"计算相似度失败 {base_key}: {e}")
-                similarities[base_key] = 0.0
-        
-        return similarities
-    
-    def _transfer_single_layer(self, 
-                              lora_weight: torch.Tensor,
-                              source_base: torch.Tensor, 
-                              target_base: torch.Tensor) -> torch.Tensor:
-        """
-        单层LoRA权重迁移
-        实现论文公式3: ∆W_t←s = U_t U_t^T ∆W_s V_t V_t^T
-        """
-        # 确保所有张量在同一设备上
-        device = lora_weight.device
-        target_base = target_base.to(device)
-        
-        # 获取目标模型子空间
-        U_t, _, Vh_t = self.compute_svd_subspace(target_base)
-        V_t = Vh_t.T
-        
-        # 检查维度兼容性，如果不兼容则使用Frobenius投影
-        try:
-            # 子空间投影迁移
-            # ∆W_t←s = U_t U_t^T ∆W_s V_t V_t^T
-            projected_weight = torch.mm(torch.mm(U_t, U_t.T), torch.mm(lora_weight, torch.mm(V_t, V_t.T)))
-        except RuntimeError as e:
-            if "cannot be multiplied" in str(e):
-                # 维度不匹配，使用Frobenius投影
-                logger.info(f"维度不匹配，使用Frobenius投影: {lora_weight.shape} vs 目标子空间")
-                projected_weight = self._frobenius_projection(lora_weight, lora_weight, target_base)
-            else:
-                raise e
-        
-        return projected_weight
-    
-    def _classify_layer_type(self, lora_key: str) -> str:
-        """分类LoRA层类型"""
-        if 'q_proj' in lora_key:
-            return 'query'
-        elif 'k_proj' in lora_key:
-            return 'key'
-        elif 'v_proj' in lora_key:
-            return 'value'
-        elif 'o_proj' in lora_key:
-            return 'output'
-        elif 'gate_proj' in lora_key:
-            return 'gate'
-        elif 'up_proj' in lora_key:
-            return 'up'
-        elif 'down_proj' in lora_key:
-            return 'down'
-        elif 'mlp' in lora_key:
-            return 'mlp'
-        elif 'attn' in lora_key:
-            return 'attention'
-        else:
-            return 'other'
-    
-    def _map_lora_to_base_key(self, lora_key: str) -> str:
-        """映射LoRA权重名到基础模型权重名"""
-        # 移除LoRA特定的前缀/后缀
-        # 例如: base_model.model.model.layers.0.mlp.down_proj.lora_A.weight
-        # 映射为: model.layers.0.mlp.down_proj.weight
-        base_key = lora_key.replace('base_model.model.', '').replace('.lora_A', '').replace('.lora_B', '')
-        return base_key
-    
-    def _check_dimension_compatibility(self, 
-                                     source_base: torch.Tensor, 
-                                     target_base: torch.Tensor, 
-                                     lora_weight: torch.Tensor) -> bool:
-        """检查维度兼容性"""
-        # 基础检查
-        if source_base.dim() != 2 or target_base.dim() != 2:
-            return False
-        
-        # LoRA权重应该与某个维度匹配
-        s_shape = source_base.shape
-        t_shape = target_base.shape
-        l_shape = lora_weight.shape
-        
-        # 简化的兼容性检查
-        return len(l_shape) == 2
-    
-    def _frobenius_projection(self, lora_weight: torch.Tensor, source_base: torch.Tensor, target_base: torch.Tensor) -> torch.Tensor:
-        """
-        对于维度不兼容的层，采用LoRA结构感知的投影
-        保持LoRA的低秩结构 (rank=16)
-        """
-        # 确保所有张量在同一设备上
-        device = lora_weight.device
-        source_base = source_base.to(device)
-        target_base = target_base.to(device)
-        
-        # 获取目标形状和LoRA rank
-        target_shape = target_base.shape
-        lora_shape = lora_weight.shape
-        lora_rank = 16  # 固定rank=16
-        
-        # 如果形状完全匹配，直接返回
-        if lora_shape == target_shape:
-            return lora_weight
-        
-        # 判断是lora_A还是lora_B权重
-        if len(lora_shape) == 2 and len(target_shape) == 2:
-            if lora_shape[0] == lora_rank:
-                # 这是lora_A权重: [16, input_dim] -> [16, target_input_dim]
-                target_lora_shape = (lora_rank, target_shape[1])
-                logger.info(f"处理lora_A权重: {lora_shape} -> {target_lora_shape}")
-                
-                # 使用SVD投影保持rank=16
-                U, S, Vh = torch.linalg.svd(lora_weight.float(), full_matrices=False)
-                # 截断到rank=16
-                rank = min(lora_rank, U.shape[1], Vh.shape[0])
-                U_truncated = U[:, :rank]
-                S_truncated = S[:rank]
-                Vh_truncated = Vh[:rank, :]
-                
-                # 重构到目标维度
-                if target_lora_shape[1] <= lora_shape[1]:
-                    # 目标维度较小，直接截断
-                    projected = U_truncated @ torch.diag(S_truncated) @ Vh_truncated[:, :target_lora_shape[1]]
-                else:
-                    # 目标维度较大，零填充
-                    projected = torch.zeros(target_lora_shape, device=device, dtype=lora_weight.dtype)
-                    reconstructed = U_truncated @ torch.diag(S_truncated) @ Vh_truncated
-                    projected[:, :reconstructed.shape[1]] = reconstructed
-                
-                return projected
-                
-            elif lora_shape[1] == lora_rank:
-                # 这是lora_B权重: [output_dim, 16] -> [target_output_dim, 16]
-                target_lora_shape = (target_shape[0], lora_rank)
-                logger.info(f"处理lora_B权重: {lora_shape} -> {target_lora_shape}")
-                
-                # 使用SVD投影保持rank=16
-                U, S, Vh = torch.linalg.svd(lora_weight.float(), full_matrices=False)
-                # 截断到rank=16
-                rank = min(lora_rank, U.shape[1], Vh.shape[0])
-                U_truncated = U[:, :rank]
-                S_truncated = S[:rank]
-                Vh_truncated = Vh[:rank, :]
-                
-                # 重构到目标维度
-                if target_lora_shape[0] <= lora_shape[0]:
-                    # 目标维度较小，直接截断
-                    projected = U_truncated[:target_lora_shape[0], :] @ torch.diag(S_truncated) @ Vh_truncated
-                else:
-                    # 目标维度较大，零填充
-                    projected = torch.zeros(target_lora_shape, device=device, dtype=lora_weight.dtype)
-                    reconstructed = U_truncated @ torch.diag(S_truncated) @ Vh_truncated
-                    projected[:reconstructed.shape[0], :] = reconstructed
-                
-                return projected
-            else:
-                # 非标准LoRA形状，使用通用投影
-                logger.warning(f"非标准LoRA形状，使用通用投影: {lora_shape} -> {target_shape}")
-                projected = torch.zeros(target_shape, device=device, dtype=lora_weight.dtype)
-                min_rows = min(lora_shape[0], target_shape[0])
-                min_cols = min(lora_shape[1], target_shape[1])
-                projected[:min_rows, :min_cols] = lora_weight[:min_rows, :min_cols]
-                return projected
-        else:
-            # 对于其他情况，返回随机初始化的权重
-            logger.warning(f"形状不兼容，使用随机初始化: {lora_shape} -> {target_shape}")
-            return torch.randn(target_shape, device=device, dtype=lora_weight.dtype) * 0.01
+                P = torch.linalg.lstsq(U_s, U_t).solution
+            except RuntimeError as e:
+                logger.warning(f"{lora_key}: lstsq失败，退回pinv: {e}")
+                P = U_t @ torch.linalg.pinv(U_s)
 
-    def _log_transfer_stats(self, stats: Dict):
-        """记录迁移统计信息"""
-        print(f"\n{'='*60}")
-        print("LoRA-X 迁移统计报告")
-        print("="*60)
-        print(f"📊 总层数: {stats['total_layers']}")
-        print(f"✅ 成功迁移: {stats['transferred_layers']}")
-        print(f"❌ 跳过层数: {len(stats['skipped_layers'])}")
-        
-        if stats['transferred_layers'] > 0:
-            success_rate = (stats['transferred_layers'] / stats['total_layers']) * 100
-            print(f"📈 迁移成功率: {success_rate:.1f}%")
-        else:
-            print(f"⚠️  警告: 没有成功迁移任何层!")
-        
-        if stats['skipped_layers']:
-            print(f"\n🔍 跳过的层详情:")
-            for i, layer in enumerate(stats['skipped_layers'][:10]):  # 显示前10个
-                print(f"  {i+1}. {layer}")
-            if len(stats['skipped_layers']) > 10:
-                print(f"  ... 还有 {len(stats['skipped_layers']) - 10} 个层被跳过")
-        
-        print("="*60)
-        
-        # 同时记录到logger
-        logger.info(f"LoRA-X迁移完成:")
-        logger.info(f"  总层数: {stats['total_layers']}")
-        logger.info(f"  成功迁移: {stats['transferred_layers']}")
-        logger.info(f"  跳过层数: {len(stats['skipped_layers'])}")
-        if stats['skipped_layers']:
-            logger.info(f"  跳过的层: {stats['skipped_layers'][:5]}...")  # 只显示前5个
+            U_s_tilde = U_s @ P
+
+            # 根据 lora_A / lora_B 分别处理
+            target_shape = target_base.shape
+            if "lora_A" in lora_key:
+                # A: [r, input_dim]
+                target_lora_shape = (lora_weight.shape[0], target_shape[1])
+                projected = torch.zeros(target_lora_shape, device=device, dtype=torch.float32)
+                cols = min(lora_weight.shape[1], target_lora_shape[1])
+                projected[:, :cols] = lora_weight[:, :cols]
+                if cols < target_lora_shape[1]:
+                    self.used_padding += 1
+                elif cols < lora_weight.shape[1]:
+                    self.used_truncation += 1
+            elif "lora_B" in lora_key:
+                # B: [output_dim, r]
+                target_lora_shape = (target_shape[0], lora_weight.shape[1])
+                projected = torch.zeros(target_lora_shape, device=device, dtype=torch.float32)
+                rows = min(lora_weight.shape[0], target_lora_shape[0])
+                projected[:rows, :] = lora_weight[:rows, :]
+                if rows < target_lora_shape[0]:
+                    self.used_padding += 1
+                elif rows < lora_weight.shape[0]:
+                    self.used_truncation += 1
+            else:
+                # fallback: 通用对齐
+                target_lora_shape = target_shape
+                projected = torch.zeros(target_lora_shape, device=device, dtype=torch.float32)
+                rows = min(lora_weight.shape[0], target_lora_shape[0])
+                cols = min(lora_weight.shape[1], target_lora_shape[1])
+                projected[:rows, :cols] = lora_weight[:rows, :cols]
+                self.used_truncation += 1
+
+            projected = projected.half()
+            self.used_transform += 1
+
+        del U_s, U_t, P, U_s_tilde
+        torch.cuda.empty_cache()
+
+        return projected
+
+    def transfer_lora_weights(
+        self,
+        source_lora: Dict[str, torch.Tensor],
+        target_base_weights: Dict[str, torch.Tensor],
+        source_base_weights: Dict[str, torch.Tensor]
+    ) -> Dict[str, torch.Tensor]:
+        """执行LoRA-X迁移"""
+        transferred_lora = {}
+        total_layers = len([k for k in source_lora if k.endswith('.weight')])
+        logger.info(f"开始执行LoRA权重迁移，总计 {total_layers} 层")
+
+        processed = 0
+        for lora_key, lora_weight in source_lora.items():
+            if not lora_key.endswith('.weight'):
+                continue
+            base_key = lora_key.replace('base_model.model.', '').replace('.lora_A', '').replace('.lora_B', '')
+            if base_key not in source_base_weights or base_key not in target_base_weights:
+                continue
+
+            try:
+                projected = self._frobenius_projection_with_transform(
+                    lora_weight,
+                    source_base_weights[base_key],
+                    target_base_weights[base_key],
+                    lora_key
+                )
+                transferred_lora[lora_key] = projected
+            except Exception as e:
+                logger.error(f"投影失败 {lora_key}: {e}")
+
+            processed += 1
+            if processed % 20 == 0:
+                logger.info(f"[进度] 已处理 {processed}/{total_layers}")
+
+        logger.info(
+            f"迁移完成，总共处理 {processed} 层，"
+            f"使用线性变换 {self.used_transform} 层，"
+            f"截断 {self.used_truncation} 层，"
+            f"填充 {self.used_padding} 层"
+        )
+        return transferred_lora
