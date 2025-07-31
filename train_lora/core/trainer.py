@@ -256,14 +256,6 @@ def run_lightning_training(
         # 开始训练（包含验证）
         trainer.fit(lightning_module, datamodule=data_module)
         
-        # 在测试集上最终评估
-        print(f"\n🧪 开始测试集评估...")
-        test_results = trainer.test(lightning_module, datamodule=data_module)
-        
-        print(f"📊 测试结果:")
-        for key, value in test_results[0].items():
-            print(f"  - {key}: {value:.4f}")
-        
         # 保存最终模型
         final_model_dir = Path(config['paths']['final_model_dir'])
         final_model_dir.mkdir(parents=True, exist_ok=True)
@@ -271,6 +263,53 @@ def run_lightning_training(
         print(f"\n💾 保存最终模型到: {final_model_dir}")
         lightning_module.model.save_pretrained(final_model_dir)
         lightning_module.tokenizer.save_pretrained(final_model_dir)
+        
+        # 在测试集上最终评估 - 使用eval模块进行对齐评估
+        print(f"\n🧪 开始测试集评估 (使用eval模块对齐逻辑)...")
+        
+        # 导入eval模块
+        import sys
+        eval_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'eval')
+        sys.path.append(eval_path)
+        
+        try:
+            from eval.core import evaluate_models
+            
+            # 使用eval模块进行评估
+            eval_results = evaluate_models(
+                models_list=[str(final_model_dir)],
+                dataset_name=dataset_name,
+                output_dir=os.path.join(config['paths']['experiment_dir'], 'eval_results'),
+                base_model_path=config.get('model', {}).get('path'),
+                sample_ratio=1.0,
+                batch_size=config['training']['batch_size']
+            )
+            
+            # 提取测试结果用于兼容性
+            model_name = final_model_dir.name
+            if model_name in eval_results and dataset_name in eval_results[model_name]:
+                eval_metrics = eval_results[model_name][dataset_name]
+                test_results = [{
+                    'test/loss': eval_metrics.get('test/loss', 0.0),
+                    'test/accuracy': eval_metrics.get('test/accuracy', 0.0),
+                    'test/perplexity': eval_metrics.get('test/perplexity', 0.0)
+                }]
+                
+                print(f"📊 eval模块测试结果:")
+                for key, value in test_results[0].items():
+                    print(f"  - {key}: {value:.4f}")
+            else:
+                print(f"⚠️ eval模块评估完成，但结果格式异常")
+                test_results = [{}]
+                
+        except Exception as e:
+            print(f"⚠️ eval模块评估失败，回退到原始方法: {e}")
+            # 回退到原始的Lightning测试方法
+            test_results = trainer.test(lightning_module, datamodule=data_module)
+            
+            print(f"📊 Lightning测试结果:")
+            for key, value in test_results[0].items():
+                print(f"  - {key}: {value:.4f}")
         
         # 关闭SwanLab
         swanlab.finish()

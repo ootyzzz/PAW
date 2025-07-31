@@ -92,7 +92,7 @@ def main():
                        help="干运行模式: 验证配置和数据文件，创建实验目录，但不实际训练模型")
     parser.add_argument("--bs", type=int, default=None,
                        help="批处理大小 (默认自动选择)")
-    parser.add_argument("--max_steps", type=int, default=125,
+    parser.add_argument("--max_steps", type=int, default=300,
                        help="训练总步数 (默认125)")
     parser.add_argument("--save_steps", type=int, default=1,
                        help="保存最后多少步的检查点 (默认1)")

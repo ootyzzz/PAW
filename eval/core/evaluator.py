@@ -157,6 +157,23 @@ class LightningModelEvaluator(pl.LightningModule):
             print(f"🔄 测试开始时重新加载模型...")
             self._load_model()
         
+        # 初始化累积统计变量
+        self._total_correct = 0
+        self._total_samples = 0
+        print(f"🚀 开始测试评估，将显示实时累积准确率...")
+
+    def on_test_end(self):
+        """测试结束时的钩子"""
+        if hasattr(self, '_total_correct') and hasattr(self, '_total_samples'):
+            if self._total_samples > 0:
+                final_accuracy = self._total_correct / self._total_samples
+                print(f"\n✅ 测试完成！")
+                print(f"📊 最终累积准确率: {final_accuracy:.4f} ({self._total_correct}/{self._total_samples})")
+                print(f"📊 正确样本数: {self._total_correct}")
+                print(f"📊 总样本数: {self._total_samples}")
+            else:
+                print(f"\n⚠️ 测试完成，但没有有效样本")
+        
     @detailed_exception_handler
     def _load_model(self):
         """加载模型和tokenizer"""
@@ -301,15 +318,35 @@ class LightningModelEvaluator(pl.LightningModule):
     def test_step(self, batch, batch_idx):
         """单个测试步骤"""
         try:
-            # 每100个batch显示一次进度和样本
-            if batch_idx % 100 == 0:
-                sample_info = ""
-                if batch and len(batch) > 0:
-                    sample = batch[0]
-                    if 'input' in sample:
-                        sample_info = f" | 样本: {sample['input']}"
-                print(f"📊 Step {batch_idx}{sample_info}")
-                log_memory_usage(f"step_{batch_idx}", verbose=True)
+            # 计算指标
+            loss = self._compute_loss(batch)
+            accuracy = self._compute_accuracy(batch)
+            perplexity = torch.exp(loss)
+            batch_size = len(batch) if batch else 0
+            
+            # 累积准确率计算
+            if not hasattr(self, '_total_correct'):
+                self._total_correct = 0
+                self._total_samples = 0
+            
+            # 更新累积统计
+            if batch_size > 0:
+                correct_count = int(accuracy.item() * batch_size)
+                self._total_correct += correct_count
+                self._total_samples += batch_size
+                
+                # 计算累积准确率
+                cumulative_accuracy = self._total_correct / self._total_samples if self._total_samples > 0 else 0.0
+                
+                # 每50个batch显示一次进度和累积准确率
+                if batch_idx % 50 == 0:
+                    sample_info = ""
+                    if batch and len(batch) > 0:
+                        sample = batch[0]
+                        if 'input' in sample:
+                            sample_info = f" | 样本: {sample['input'][:50]}..."
+                    print(f"📊 Step {batch_idx:4d} | 累积准确率: {cumulative_accuracy:.4f} ({self._total_correct}/{self._total_samples}){sample_info}")
+                    log_memory_usage(f"step_{batch_idx}", verbose=False)
             
             # 验证batch内容
             if not batch:
@@ -319,12 +356,6 @@ class LightningModelEvaluator(pl.LightningModule):
                     'perplexity': torch.tensor(1.0),
                     'batch_size': 0
                 }
-            
-            # 计算指标
-            loss = self._compute_loss(batch)
-            accuracy = self._compute_accuracy(batch)
-            perplexity = torch.exp(loss)
-            batch_size = len(batch)
             
             # 记录指标
             self.log('test/loss', loss, batch_size=batch_size)
@@ -405,9 +436,9 @@ class LightningModelEvaluator(pl.LightningModule):
             return torch.tensor(float('inf'))
 
     def _compute_accuracy(self, batch):
-        """计算准确率"""
+        """计算准确率 - 支持所有7个数据集格式"""
         if not isinstance(batch, list):
-            return torch.tensor(0.5)  # PIQA是2选1题，随机基线是0.5
+            return torch.tensor(0.5)
         
         correct = 0
         total = 0
@@ -420,16 +451,58 @@ class LightningModelEvaluator(pl.LightningModule):
                     options = item.get('options', [])
                     correct_answer = item.get('target', '')
                     correct_idx = item.get('target_idx', 0)
+                    dataset = item.get('dataset', '')
                     
-                    if not options or len(options) < 2:
+                    if not options:
                         total += 1
                         continue
                     
-                    # 格式化带选项的问题，使用A/B格式
-                    prompt = f"Question: {question}\n"
-                    for i, option in enumerate(options[:2]):  # PIQA只有2个选项
-                        prompt += f"{'A' if i == 0 else 'B'}. {option}\n"
-                    prompt += "Answer:"
+                    # 根据数据集类型格式化提示词
+                    if dataset in ['arc-challenge', 'arc-easy', 'openbookqa']:
+                        # ARC和OpenBookQA：4选项，使用A/B/C/D格式
+                        prompt = f"Question: {question}\n"
+                        option_labels = ['A', 'B', 'C', 'D']
+                        for i, option in enumerate(options):
+                            if i < len(option_labels):
+                                prompt += f"{option_labels[i]}. {option}\n"
+                        prompt += "Answer:"
+                        valid_answers = option_labels[:len(options)]
+                        
+                    elif dataset == 'boolq':
+                        # BoolQ：True/False格式，映射到A/B
+                        prompt = f"Question: {question}\n"
+                        prompt += "A. False\n"
+                        prompt += "B. True\n"
+                        prompt += "Answer:"
+                        valid_answers = ['A', 'B']  # A=False, B=True
+                        
+                    elif dataset == 'hellaswag':
+                        # HellaSwag：4选项，使用A/B/C/D格式
+                        prompt = f"Question: {question}\n"
+                        option_labels = ['A', 'B', 'C', 'D']
+                        for i, option in enumerate(options):
+                            if i < len(option_labels):
+                                prompt += f"{option_labels[i]}. {option}\n"
+                        prompt += "Answer:"
+                        valid_answers = option_labels[:len(options)]
+                        
+                    elif dataset in ['piqa', 'winogrande']:
+                        # PIQA和WinoGrande：2选项，使用A/B格式
+                        prompt = f"Question: {question}\n"
+                        for i, option in enumerate(options[:2]):
+                            prompt += f"{'A' if i == 0 else 'B'}. {option}\n"
+                        prompt += "Answer:"
+                        valid_answers = ['A', 'B']
+                        
+                    else:
+                        # 默认格式：使用A/B格式
+                        prompt = f"Question: {question}\n"
+                        option_labels = ['A', 'B', 'C', 'D']
+                        for i, option in enumerate(options):
+                            if i < len(option_labels):
+                                prompt += f"{option_labels[i]}. {option}\n"
+                        prompt += "Answer:"
+                        valid_answers = option_labels[:len(options)]
                     
                     # Tokenize
                     model_device = next(self.model.parameters()).device
@@ -440,22 +513,19 @@ class LightningModelEvaluator(pl.LightningModule):
                         max_length=self.max_length,
                         padding=True
                     )
-                    # 将输入移动到模型设备
                     inputs = {k: v.to(model_device) for k, v in inputs.items()}
                     
-                    # Gemma模型特殊处理
-                    model_name_lower = self.model_path.lower()
+                    # 生成参数
                     generation_kwargs = {
-                        "max_new_tokens": 3,  # 减少生成长度
+                        "max_new_tokens": 5,
                         "do_sample": False,
                         "pad_token_id": self.tokenizer.eos_token_id,
-                        "use_cache": False,  # 禁用缓存
+                        "use_cache": False,
                         "output_attentions": False,
                         "output_hidden_states": False,
                     }
                     
-                    if "gemma" in model_name_lower:
-                        # Gemma模型特殊适配
+                    if "gemma" in self.model_path.lower():
                         generation_kwargs.update({
                             "temperature": 1.0,
                             "top_p": 1.0,
@@ -463,45 +533,42 @@ class LightningModelEvaluator(pl.LightningModule):
                         })
                     
                     # 生成答案
-                    outputs = self.model.generate(
-                        **inputs,
-                        **generation_kwargs
-                    )
+                    outputs = self.model.generate(**inputs, **generation_kwargs)
                     
-                    # 解码生成的答案
+                    # 解码并清理生成的文本
                     generated_text = self.tokenizer.decode(outputs[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True)
-                    generated_answer = generated_text.strip().upper()
+                    # 移除开头的单引号和空格
+                    generated_text = generated_text.lstrip("' ").strip().upper()
                     
-                    # 提取第一个字母 (A 或 B)
+                    # 提取预测答案
                     predicted_answer = None
-                    for char in generated_answer:
-                        if char in ['A', 'B']:
-                            predicted_answer = 0 if char == 'A' else 1
+                    for char in generated_text:
+                        if char in valid_answers:
+                            predicted_answer = valid_answers.index(char)
                             break
                     
-                    # 如果没有找到明确答案，尝试匹配选项内容
+                    # 如果没有找到明确答案，使用默认策略
                     if predicted_answer is None:
-                        # 检查生成的文本是否更接近正确选项
-                        predicted_answer = 0  # 默认选择A
-                        try:
-                            # 简单的文本匹配策略
-                            if correct_idx == 0:
-                                # 如果正确答案是第一个选项
-                                if options[0].lower() in generated_text.lower():
-                                    predicted_answer = 0
-                                elif options[1].lower() in generated_text.lower():
-                                    predicted_answer = 1
-                            else:
-                                # 如果正确答案是第二个选项
-                                if options[1].lower() in generated_text.lower():
-                                    predicted_answer = 1
-                                elif options[0].lower() in generated_text.lower():
-                                    predicted_answer = 0
-                        except:
-                            pass
+                        predicted_answer = 0  # 默认选择第一个选项
+                    
+                    # 调试信息输出
+                    is_correct = predicted_answer == correct_idx
+                    # if total < 10:
+                        # print(f"\n🔍 样本 {total + 1} 调试信息:")
+                        # print(f"📝 数据集: {dataset}")
+                        # print(f"📝 问题: {question[:100]}...")
+                        # print(f"📝 选项数量: {len(options)}")
+                        # for i, opt in enumerate(options):
+                        #     label = valid_answers[i] if i < len(valid_answers) else f"选项{i+1}"
+                        #     print(f"📝 {label}: {opt[:50]}...")
+                        # print(f"📝 正确答案: {correct_answer} (索引: {correct_idx})")
+                        # print(f"📝 生成文本: '{generated_text}'")
+                        # print(f"📝 预测答案: {predicted_answer} ({valid_answers[predicted_answer] if predicted_answer < len(valid_answers) else 'N/A'})")
+                        # print(f"📝 是否正确: {'✅' if is_correct else '❌'}")
+                        # print("-" * 50)
                     
                     # 与正确答案比较
-                    if predicted_answer == correct_idx:
+                    if is_correct:
                         correct += 1
                     
                     total += 1

@@ -79,7 +79,7 @@ def evaluate_models(
                 "logger": False,
                 "enable_checkpointing": False,  # 评估不需要检查点
                 "enable_model_summary": False,  # 关闭模型摘要
-                "enable_progress_bar": True,
+                "enable_progress_bar": True,  # 启用进度条显示累积准确率
                 "deterministic": False,  # 对Gemma模型禁用deterministic
                 "num_sanity_val_steps": 0,  # 避免sanity检查
                 "inference_mode": True,  # 使用推理模式

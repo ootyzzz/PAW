@@ -10,6 +10,7 @@ def get_test_file_path(dataset_name: str) -> str:
     """获取测试文件路径"""
     # 尝试多个可能的数据目录路径
     possible_paths = [
+        f"/root/PAW/data_to_lora/cs/{dataset_name}",  # 绝对路径
         f"data_to_lora/cs/{dataset_name}",  # 从PAW根目录运行
         f"../data_to_lora/cs/{dataset_name}",  # 从pipeline目录运行
         f"../../data_to_lora/cs/{dataset_name}",  # 从子目录运行

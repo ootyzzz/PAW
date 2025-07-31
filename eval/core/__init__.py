@@ -1,17 +1,16 @@
 """
-Lightning评估脚本核心模块
+eval/core模块初始化文件
+导出主要的评估功能供外部使用
 """
 
-from .config import *
-from .data import get_test_file_path, SimpleDataset
-from .evaluator import LightningModelEvaluator
-from .model_loader import load_model_for_eval
 from .batch_eval import evaluate_models
+from .evaluator import LightningModelEvaluator
+from .data import get_test_file_path, SimpleDataset
+from .config import *
 
 __all__ = [
+    'evaluate_models',
+    'LightningModelEvaluator', 
     'get_test_file_path',
-    'SimpleDataset', 
-    'LightningModelEvaluator',
-    'load_model_for_eval',
-    'evaluate_models'
+    'SimpleDataset'
 ]
