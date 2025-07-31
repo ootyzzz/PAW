@@ -515,9 +515,9 @@ class LightningModelEvaluator(pl.LightningModule):
                     )
                     inputs = {k: v.to(model_device) for k, v in inputs.items()}
                     
-                    # 生成参数
+                    # 生成参数 - 加速版本：只生成1个token
                     generation_kwargs = {
-                        "max_new_tokens": 5,
+                        "max_new_tokens": 1,  # 只生成1个token，大幅加速
                         "do_sample": False,
                         "pad_token_id": self.tokenizer.eos_token_id,
                         "use_cache": False,
@@ -537,8 +537,8 @@ class LightningModelEvaluator(pl.LightningModule):
                     
                     # 解码并清理生成的文本
                     generated_text = self.tokenizer.decode(outputs[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True)
-                    # 移除开头的单引号和空格
-                    generated_text = generated_text.lstrip("' ").strip().upper()
+                    # 移除开头的单引号和空格，只取前2个字符进行解析
+                    generated_text = generated_text.lstrip("' ").strip().upper()[:2]
                     
                     # 提取预测答案
                     predicted_answer = None
